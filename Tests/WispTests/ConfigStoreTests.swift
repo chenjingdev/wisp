@@ -163,6 +163,7 @@ func configStoreTests(_ t: TestRunner) async {
 
             var config = store.load()
             config.vocabulary = "Wisp, GRDB, SwiftUI"
+            config.speechPeakThreshold = 0.04
             config.replacements = [
                 ReplacementRule(from: "깃헙", to: "GitHub"),
                 ReplacementRule(from: "->", to: "→", caseSensitive: true),
@@ -172,6 +173,7 @@ func configStoreTests(_ t: TestRunner) async {
 
             let loaded = store.load()
             try expectEqual(loaded.vocabulary, "Wisp, GRDB, SwiftUI")
+            try expectEqual(loaded.speechPeakThreshold, 0.04)
             try expectEqual(loaded.replacements.count, 2)
             try expectEqual(loaded.replacements.first?.from, "깃헙")
             try expectEqual(loaded.replacements.first?.to, "GitHub")

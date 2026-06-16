@@ -193,9 +193,13 @@ public final class AppContainer: ObservableObject {
                 replace: { [weak self] text in
                     TextReplacer.apply(text, rules: self?.config.replacements ?? [])
                 },
-                captureContext: { [weak self] in self?.captureDictationContext() ?? DictationContext() }
+                captureContext: { [weak self] in self?.captureDictationContext() ?? DictationContext() },
+                speechThreshold: { [weak self] in
+                    self?.config.speechPeakThreshold ?? AudioMath.speechPeakThreshold
+                }
             )
             self.controller = controller
+            hud.speechPeakThreshold = config.speechPeakThreshold
             bindHUD(controller)
             registerHotkey(controller)
             if config.hotkeyBareModifier != nil, !permissions.axTrusted(prompt: false) {
@@ -331,6 +335,12 @@ public final class AppContainer: ObservableObject {
         pasteService?.apply(autoPaste: config.autoPaste,
                             restoreClipboard: config.restoreClipboard,
                             pasteMethod: config.pasteMethod)
+    }
+
+    /// 무음 감지 감도 변경 즉시 적용. RecordingController는 클로저로 config를 실시간
+    /// 조회하므로 HUD의 "캡처 중" 판정 문턱만 동기화하면 된다.
+    func applySpeechThreshold() {
+        hud.speechPeakThreshold = config.speechPeakThreshold
     }
 
     /// 앱 종료 시 호출 — 녹음 중이었다면 일시정지한 미디어/낮춘 볼륨을 복원.

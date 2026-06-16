@@ -11,8 +11,13 @@ struct AudioLevel: Equatable {
 
 enum AudioMath {
     /// 무음 게이트 문턱(정규화 샘플 [-1,1] 기준). HUD 캡처 표시와 전사 게이트가 같은 값을
-    /// 공유하도록 단일 출처로 둔다. 마이크 게인에 따라 달라지므로 보수적으로 낮게 잡는다.
-    static let speechPeakThreshold: Float = 0.008
+    /// 공유하도록 단일 출처로 둔다.
+    ///
+    /// peak 0.025: 키보드/마우스/팬의 순간 노이즈 스파이크가 게이트를 뚫어 "Thank you"
+    /// 환각을 부르던 것을 막는다. 실측상 무음 환경의 스파이크 peak가 ~0.016까지 튀므로
+    /// 그 위로 올린다. rms는 지속 에너지라 스파이크에 강하지만, 이 머신은 발화 rms가
+    /// ~0.0016으로 매우 낮아 rms 경로만으론 발화를 못 잡는다 — peak가 주 감지선이다.
+    static let speechPeakThreshold: Float = 0.025
     static let speechRMSThreshold: Float = 0.003
 
     static func rms(_ chunk: [Float]) -> Float {
@@ -39,7 +44,10 @@ enum AudioMath {
 
     /// 라이브 청크가 캡처(전사) 문턱을 넘는지 — `hasSpeech`와 동일 기준의 스칼라 버전.
     /// HUD가 "지금 들어오는 소리가 받아쓰기될 만큼 큰가"를 실시간으로 표시하는 데 쓴다.
-    static func crossesSpeechThreshold(_ level: AudioLevel) -> Bool {
-        level.peak >= speechPeakThreshold || level.rms >= speechRMSThreshold
+    /// peakThreshold는 설정(무음 감지 감도)에서 주입돼 게이트와 같은 값을 공유한다.
+    static func crossesSpeechThreshold(_ level: AudioLevel,
+                                       peakThreshold: Float = speechPeakThreshold,
+                                       rmsThreshold: Float = speechRMSThreshold) -> Bool {
+        level.peak >= peakThreshold || level.rms >= rmsThreshold
     }
 }

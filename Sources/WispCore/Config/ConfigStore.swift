@@ -34,6 +34,10 @@ struct WispConfig: Codable, Equatable {
     /// 활성 whisper 모델 id(ModelCatalog 참조). 모델 파일 경로가 여기서 파생된다.
     /// 알 수 없는 id면 런타임에 기본 모델로 폴백한다.
     var whisperModelId: String = ModelCatalog.defaultModelId
+    /// 무음 게이트 감도 — 녹음의 peak 진폭(정규화 [-1,1])이 이 값 미만이면 발화 없음으로
+    /// 보고 전사를 건너뛴다(whisper의 "Thank you" 무음 환각 방지). 낮을수록 민감(작은
+    /// 소리도 받아쓰기), 높을수록 둔감(또렷한 발화만). 마이크 게인에 맞춰 조절한다.
+    var speechPeakThreshold: Float = AudioMath.speechPeakThreshold
 }
 
 extension WispConfig {
@@ -61,6 +65,7 @@ extension WispConfig {
         v.pasteMethod = try c.decodeIfPresent(PasteMethod.self, forKey: .pasteMethod) ?? v.pasteMethod
         v.trackpadFingerCount = try c.decodeIfPresent(Int.self, forKey: .trackpadFingerCount) ?? v.trackpadFingerCount
         v.whisperModelId = try c.decodeIfPresent(String.self, forKey: .whisperModelId) ?? v.whisperModelId
+        v.speechPeakThreshold = try c.decodeIfPresent(Float.self, forKey: .speechPeakThreshold) ?? v.speechPeakThreshold
         self = v
     }
 }

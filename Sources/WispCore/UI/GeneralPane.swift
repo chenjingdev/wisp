@@ -1,9 +1,15 @@
 import SwiftUI
 import ServiceManagement
+import AppKit
+import Combine
 
 struct GeneralPane: View {
     @ObservedObject var container: AppContainer
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    /// 마이크 테스트용 실시간 레벨 모니터(설정 패널 전용, 받아쓰기와 독립).
+    @StateObject private var mic = MicLevelMonitor()
+    /// 레벨 미터·슬라이더 상한 — 무음 감지 슬라이더 최댓값과 같은 스케일.
+    private let meterMaxScale: Float = 0.06
 
     var body: some View {
         Form {
@@ -28,6 +34,37 @@ struct GeneralPane: View {
                     .font(.body).frame(minHeight: 54)
                 Text("고유명사·전문용어를 적어두면 인식 정확도가 올라갑니다 (예: Wisp, GRDB, SwiftUI)")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("무음 감지") {
+                Slider(value: container.binding(\.speechPeakThreshold, apply: { container.applySpeechThreshold() }),
+                       in: 0.005...0.06, step: 0.001) {
+                    Text("감도")
+                } minimumValueLabel: {
+                    Text("민감")
+                } maximumValueLabel: {
+                    Text("둔감")
+                }
+                Text(String(format: "녹음 음량(peak)이 %.3f 미만이면 발화 없음으로 보고 전사를 건너뜁니다. 낮출수록 작은 소리도 받아쓰고, 높일수록 또렷한 발화만 받습니다. 아무 말 없이 손만 떼도 “Thank you” 같은 환각이 나오면 높이세요.",
+                            container.config.speechPeakThreshold))
+                    .font(.caption).foregroundStyle(.secondary)
+
+                // 마이크 테스트 — 실시간 레벨을 보며 문턱(세로선)을 내 목소리·환경에 맞춘다.
+                Button(mic.isRunning ? "마이크 테스트 중지" : "마이크 테스트") { mic.toggle() }
+                    .buttonStyle(.borderless)
+                if mic.isRunning {
+                    MicLevelMeter(peak: mic.peakHold,
+                                  threshold: container.config.speechPeakThreshold,
+                                  maxScale: meterMaxScale)
+                    let over = mic.peakHold >= container.config.speechPeakThreshold
+                    Text(String(format: "현재 %.4f · 최고 %.4f  —  %@",
+                                mic.level.peak, mic.peakHold,
+                                over ? "✓ 받아쓰기됨 (문턱 넘음)" : "무음 처리 (문턱 미만)"))
+                        .font(.caption)
+                        .foregroundStyle(over ? Color.green : .secondary)
+                    Text("말해보고 막대가 세로선을 넘는지 확인하세요. 평소 목소리가 안 넘으면 슬라이더를 ‘민감’ 쪽으로, 조용할 때도 넘으면 ‘둔감’ 쪽으로 옮기세요.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
 
             Section("단어 교체") {
@@ -100,6 +137,12 @@ struct GeneralPane: View {
         }
         .formStyle(.grouped)
         .navigationTitle("일반")
+        .onDisappear { mic.stop() }   // 다른 설정 탭으로 전환 시 마이크 점유 해제
+        // 창 닫기(빨간 버튼)는 macOS에서 detail 뷰의 onDisappear가 보장되지 않는다 —
+        // 창 닫힘 알림으로도 확실히 정지한다(stop은 멱등이라 다른 창 닫힘에 불려도 무해).
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in
+            mic.stop()
+        }
     }
 
     private var codexExists: Bool {
@@ -108,4 +151,30 @@ struct GeneralPane: View {
 
     private func rebuild() { container.rebuildPostProcessor() }
     private func applyPaste() { container.applyPasteSettings() }
+}
+
+/// 입력 peak를 가로 막대로 그리고, 현재 무음 문턱을 세로선으로 표시한다. 막대가 문턱을
+/// 넘으면(=받아쓰기 캡처됨) 초록, 미만이면 회색. maxScale은 슬라이더 상한과 같은 스케일.
+private struct MicLevelMeter: View {
+    let peak: Float
+    let threshold: Float
+    let maxScale: Float
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let fillW = max(2, CGFloat(min(peak, maxScale) / maxScale) * w)
+            let markerX = CGFloat(min(threshold, maxScale) / maxScale) * w
+            let over = peak >= threshold
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.secondary.opacity(0.18))
+                Capsule().fill(over ? Color.green : Color.gray)
+                    .frame(width: fillW)
+                Rectangle().fill(Color.primary.opacity(0.55))
+                    .frame(width: 2)
+                    .offset(x: markerX)
+            }
+        }
+        .frame(height: 12)
+    }
 }

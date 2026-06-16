@@ -6,6 +6,8 @@ final class HUDController {
     let model = HUDModel()
     private var panel: NSPanel?
     private var flashTask: Task<Void, Never>?
+    /// "캡처 중" 판정 peak 문턱 — 설정(무음 감지 감도)과 동기화돼 전사 게이트와 같은 기준을 쓴다.
+    var speechPeakThreshold: Float = AudioMath.speechPeakThreshold
 
     func update(state: PipelineState, notice: String? = nil) {
         model.state = state
@@ -60,7 +62,7 @@ final class HUDController {
 
         // 캡처 상태는 절대 문턱(peak 또는 rms)으로 판정 — 적응 정규화와 무관하게 "받아쓰기될
         // 만큼 큰가"를 답한다. 한 청크라도 넘으면 즉시 켜고, 미달은 grace 뒤에 끈다.
-        if AudioMath.crossesSpeechThreshold(level) {
+        if AudioMath.crossesSpeechThreshold(level, peakThreshold: speechPeakThreshold) {
             quietStreak = 0
             model.captured = true
         } else {

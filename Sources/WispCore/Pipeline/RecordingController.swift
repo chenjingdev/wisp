@@ -23,6 +23,8 @@ final class RecordingController: ObservableObject {
     private let replace: (String) -> String
     /// 녹음 시작 시점에 주변 컨텍스트(선택 텍스트/클립보드)를 캡처한다.
     private let captureContext: () -> DictationContext
+    /// 무음 게이트 peak 문턱. 종료 시점에 평가돼 최신 설정(무음 감지 감도)을 읽는다.
+    private let speechThreshold: () -> Float
     /// startRecording에서 캡처해 stopAndProcess가 후처리에 넘긴다.
     private var capturedContext = DictationContext()
     /// 마지막 자동 붙여넣기(.pasted)된 텍스트와 시각. 트랙패드 더블탭 취소가
@@ -43,7 +45,8 @@ final class RecordingController: ObservableObject {
          effects: RecordingEffects = NoopRecordingEffects(),
          vocabulary: @escaping () -> String = { "" },
          replace: @escaping (String) -> String = { $0 },
-         captureContext: @escaping () -> DictationContext = { DictationContext() }) {
+         captureContext: @escaping () -> DictationContext = { DictationContext() },
+         speechThreshold: @escaping () -> Float = { AudioMath.speechPeakThreshold }) {
         self.audio = audio
         self.transcription = transcription
         self.postProcess = postProcess
@@ -55,6 +58,7 @@ final class RecordingController: ObservableObject {
         self.vocabulary = vocabulary
         self.replace = replace
         self.captureContext = captureContext
+        self.speechThreshold = speechThreshold
     }
 
     func toggleOrStart() {
@@ -113,7 +117,7 @@ final class RecordingController: ObservableObject {
                 // 없음, 보류된 톡(Enter)도 폐기). 실측 레벨로 문턱을 맞추려 peak/rms를 남긴다.
                 let pk = AudioMath.peak(recording.samples)
                 let rms = AudioMath.rms(recording.samples)
-                let hasSpeech = AudioMath.hasSpeech(recording.samples)
+                let hasSpeech = AudioMath.hasSpeech(recording.samples, peakThreshold: speechThreshold())
                 MultitouchHotkey.diag("AUDIO: peak=\(pk) rms=\(rms) dur=\(recordSeconds) speech=\(hasSpeech) n=\(recording.samples.count)")
                 guard hasSpeech else {
                     pendingIdleActions = []

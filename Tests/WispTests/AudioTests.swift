@@ -31,9 +31,14 @@ import Foundation
         // 둘 다 미달 → 캡처 아님(HUD "너무 작음")
         try expect(!AudioMath.crossesSpeechThreshold(AudioLevel(rms: 0.001, peak: 0.005)),
                    "peak·rms 둘 다 문턱 미만이면 캡처 아님")
-        // peak만 넘음(이 머신의 조용한 발화 — rms는 낮지만 peak로 통과) → 캡처
-        try expect(AudioMath.crossesSpeechThreshold(AudioLevel(rms: 0.0016, peak: 0.0134)),
+        // peak만 넘음(또렷한 발화 — rms는 낮지만 peak로 통과) → 캡처. 임계 상수를
+        // 참조해 문턱을 튜닝해도 테스트가 따라오게 한다.
+        try expect(AudioMath.crossesSpeechThreshold(AudioLevel(rms: 0.0016, peak: AudioMath.speechPeakThreshold + 0.01)),
                    "peak가 문턱 넘으면 rms가 낮아도 캡처")
+        // 회귀: 무음 환경의 노이즈 스파이크가 peak ~0.016까지 튄다 — 예전 0.008 임계는
+        // 이걸 발화로 오인해 "Thank you" 환각을 불렀다. 이제 캡처 아님.
+        try expect(!AudioMath.crossesSpeechThreshold(AudioLevel(rms: 0.00155, peak: 0.0164)),
+                   "무음 노이즈 스파이크(peak 0.0164)는 캡처 아님")
         // rms만 넘음 → 캡처
         try expect(AudioMath.crossesSpeechThreshold(AudioLevel(rms: 0.004, peak: 0.006)),
                    "rms가 문턱 넘으면 peak가 낮아도 캡처")
