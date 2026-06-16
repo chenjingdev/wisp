@@ -1,0 +1,12 @@
+.build/
+build/
+vendor/whisper-lib/
+Sources/CWhisper/include/
+.DS_Store
+*.xcodeproj
+.resume-panel/
+.superpowers/
+.playwright-mcp/
+
+# 내부 설계·계획 문서(에이전트 워크플로 산출물) — 로컬 유지, 저장소엔 미포함
+docs/superpowers/
