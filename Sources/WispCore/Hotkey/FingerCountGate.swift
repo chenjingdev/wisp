@@ -22,6 +22,9 @@ struct FingerCountGate {
     let debounce: TimeInterval
     private var engagedSince: TimeInterval?
     private var isDown = false
+    /// watchdog이 장치 복구에도 실패해 합성 up을 낸 뒤, 아직 얹혀 있는 손가락을 새 down으로
+    /// 오인하지 않도록 실제 0-contact 프레임을 볼 때까지 재무장을 막는다.
+    private var blockedUntilNeutral = false
 
     init(target: Int, debounce: TimeInterval = 0.12) {
         self.target = max(1, target)
@@ -31,6 +34,10 @@ struct FingerCountGate {
 
     /// 매 프레임 호출한다. now는 단조 증가 타임스탬프(초).
     mutating func update(count: Int, now: TimeInterval) -> Event {
+        if blockedUntilNeutral {
+            if count == 0 { blockedUntilNeutral = false }
+            return .none
+        }
         if isDown {
             // 눌림 유지: release 미만으로 떨어지면 뗌.
             if count < release { isDown = false; engagedSince = nil; return .up }
@@ -52,9 +59,11 @@ struct FingerCountGate {
         return .none
     }
 
-    /// 강제 초기화(취소·재등록 시).
-    mutating func reset() {
+    /// 강제 초기화(취소·재등록 시). `requireRelease`면 실제 0-contact 프레임을 한 번
+    /// 확인한 뒤에만 다음 제스처를 받는다.
+    mutating func reset(requireRelease: Bool = false) {
         engagedSince = nil
         isDown = false
+        blockedUntilNeutral = requireRelease
     }
 }

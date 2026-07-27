@@ -61,4 +61,18 @@ func fingerCountGateTests(_ t: TestRunner) async {
         g.reset()
         try expectEqual(g.update(count: 0, now: 0.3), .none)   // reset 후라 up 안 나옴
     }
+
+    await t.test("FingerCountGate: 강제 복구 뒤 neutral 전에는 재녹음하지 않음") {
+        var g = FingerCountGate(target: 5, debounce: 0)
+        try expectEqual(g.update(count: 5, now: 0.0), .down)
+
+        g.reset(requireRelease: true)
+        // device를 재등록해 5손가락이 계속 보여도 새 down으로 bounce하지 않는다.
+        try expectEqual(g.update(count: 5, now: 1.0), .none)
+        try expectEqual(g.update(count: 5, now: 10.0), .none)
+        // 실제 0-contact를 확인한 프레임은 재무장만 하고 이벤트를 내지 않는다.
+        try expectEqual(g.update(count: 0, now: 10.1), .none)
+        // 완전히 뗀 뒤 다음 제스처부터 정상 동작한다.
+        try expectEqual(g.update(count: 5, now: 10.2), .down)
+    }
 }

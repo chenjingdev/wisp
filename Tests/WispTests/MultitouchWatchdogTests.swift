@@ -3,99 +3,192 @@ import Foundation
 
 @MainActor
 func multitouchWatchdogTests(_ t: TestRunner) async {
-    await t.test("MultitouchWatchdog: 녹음 중 프레임이 stallTimeout 넘게 끊기면 recoverStuck") {
-        let w = MultitouchWatchdog(stallTimeout: 1.5, idleReregisterInterval: 1800)
-        // 녹음 중(engaged), 마지막 프레임 10.0, 현재 11.6 → 1.6s ≥ 1.5 → 복구
-        try expectEqual(
-            w.evaluate(engaged: true, currentCount: 5, now: 11.6,
-                       lastFrameAt: 10.0, lastDeviceStartAt: 0.0),
-            .recoverStuck
+    func frame(source: Int32,
+               timestamp: TimeInterval,
+               physicalCount: Int = 5,
+               touchFrame: Int32? = nil,
+               layoutValid: Bool = true) -> MultitouchFrame {
+        MultitouchFrame(
+            reportedCount: physicalCount,
+            physicalCount: physicalCount,
+            sourceTimestamp: timestamp,
+            sourceFrame: source,
+            newestPhysicalTouchFrame: touchFrame ?? (physicalCount > 0 ? source : nil),
+            stateCounts: layoutValid ? Array(repeating: 0, count: 8) : [],
+            touchLayoutValid: layoutValid
         )
     }
 
-    await t.test("MultitouchWatchdog: 녹음 중이라도 프레임이 계속 오면 none(정상 PTT)") {
-        let w = MultitouchWatchdog(stallTimeout: 1.5, idleReregisterInterval: 1800)
-        // 1.6s 동안 눌렀지만 마지막 프레임이 0.2s 전 → 아직 stall 아님
+    func decodedFrame(states: [Int32],
+                      touchFrames: [Int32],
+                      sourceFrame: Int32 = 42) -> MultitouchFrame {
+        let byteCount = max(1, states.count) * MultitouchFrameDecoder.touchStride
+        let pointer = UnsafeMutableRawPointer.allocate(byteCount: byteCount, alignment: 8)
+        pointer.initializeMemory(as: UInt8.self, repeating: 0, count: byteCount)
+        defer { pointer.deallocate() }
+
+        for index in states.indices {
+            let base = index * MultitouchFrameDecoder.touchStride
+            pointer.storeBytes(
+                of: touchFrames[index],
+                toByteOffset: base + MultitouchFrameDecoder.frameOffset,
+                as: Int32.self
+            )
+            pointer.storeBytes(
+                of: states[index],
+                toByteOffset: base + MultitouchFrameDecoder.stateOffset,
+                as: Int32.self
+            )
+        }
+        return MultitouchFrameDecoder.decode(
+            touches: pointer,
+            reportedCount: states.count,
+            sourceTimestamp: 12.5,
+            sourceFrame: sourceFrame
+        )
+    }
+
+    await t.test("MultitouchFrame: raw path 중 MakeTouch/Touching만 실제 접촉으로 계산") {
+        let decoded = decodedFrame(
+            states: [3, 4, 5, 6, 7],
+            touchFrames: [42, 42, 42, 42, 42]
+        )
+        try expectEqual(decoded.reportedCount, 5)
+        try expectEqual(decoded.physicalCount, 2)
+        try expectEqual(decoded.newestPhysicalTouchFrame, 42)
+        try expectEqual(decoded.touchLayoutValid, true)
+        try expectEqual(decoded.stateCounts, [0, 0, 0, 1, 1, 1, 1, 1])
+    }
+
+    await t.test("MultitouchFrame: ABI 검증 실패 시 raw count로 안전 폴백") {
+        // 두 번째 touch record frame이 callback source frame과 다르면 stride/layout을
+        // 신뢰하지 않고 기존 numTouches 판정으로 돌아간다.
+        let decoded = decodedFrame(
+            states: [4, 4, 6],
+            touchFrames: [42, 41, 42]
+        )
+        try expectEqual(decoded.reportedCount, 3)
+        try expectEqual(decoded.physicalCount, 3)
+        try expectEqual(decoded.touchLayoutValid, false)
+        try expectEqual(decoded.newestPhysicalTouchFrame, nil)
+    }
+
+    await t.test("MultitouchHeartbeat: callback 도착과 source/contact 진행을 구분") {
+        var heartbeat = MultitouchHeartbeat(now: 0)
+        let first = frame(source: 10, timestamp: 1.0)
+        heartbeat.observe(first, receivedAt: 1.0)
+
+        // 같은 source/touch frame replay: callback만 새롭고 source/contact는 1.0에 머문다.
+        heartbeat.observe(first, receivedAt: 2.0)
+        try expectEqual(heartbeat.lastCallbackAt, 2.0)
+        try expectEqual(heartbeat.lastSourceProgressAt, 1.0)
+        try expectEqual(heartbeat.lastContactProgressAt, 1.0)
+
+        // 다른 identity여도 timestamp가 뒤로 가는 A/B replay는 진척이 아니다.
+        heartbeat.observe(frame(source: 9, timestamp: 0.9), receivedAt: 2.5)
+        try expectEqual(heartbeat.lastSourceProgressAt, 1.0)
+
+        let next = frame(source: 11, timestamp: 1.1)
+        heartbeat.observe(next, receivedAt: 3.0)
+        try expectEqual(heartbeat.lastSourceProgressAt, 3.0)
+        try expectEqual(heartbeat.lastContactProgressAt, 3.0)
+    }
+
+    await t.test("MultitouchRecoveryProbe: replay 한 장이 아니라 source 연속 진행을 확인") {
+        var probe = MultitouchRecoveryProbe()
+        let first = frame(source: 50, timestamp: 7.0)
+        try expectEqual(probe.observe(first), .first)
+        try expectEqual(probe.observe(first), .replay)
+        try expectEqual(probe.observe(frame(source: 49, timestamp: 6.9)), .replay)
+        try expectEqual(probe.observe(frame(source: 51, timestamp: 7.1)), .progressing)
+
+        probe.reset()
+        try expectEqual(probe.observe(frame(source: 90, timestamp: 9.0)), .first)
+    }
+
+    await t.test("MultitouchWatchdog: callback silence면 device 복구") {
+        let watchdog = MultitouchWatchdog(stallTimeout: 1.5)
+        let heartbeat = MultitouchHeartbeat(now: 10.0)
         try expectEqual(
-            w.evaluate(engaged: true, currentCount: 5, now: 11.6,
-                       lastFrameAt: 11.4, lastDeviceStartAt: 0.0,
-                       engagedAt: 10.0),
+            watchdog.evaluate(
+                engaged: true, recoveringDevice: false,
+                now: 11.5, heartbeat: heartbeat
+            ),
+            .recoverDevice(.callbackSilent)
+        )
+    }
+
+    await t.test("MultitouchWatchdog: callback replay로 source가 멎으면 device 복구") {
+        let watchdog = MultitouchWatchdog(stallTimeout: 1.5)
+        var heartbeat = MultitouchHeartbeat(now: 10.0)
+        let stale = frame(source: 20, timestamp: 5.0)
+        heartbeat.observe(stale, receivedAt: 10.0)
+        heartbeat.observe(stale, receivedAt: 11.6) // callback만 계속 도착
+        try expectEqual(
+            watchdog.evaluate(
+                engaged: true, recoveringDevice: false,
+                now: 11.6, heartbeat: heartbeat
+            ),
+            .recoverDevice(.sourceFrozen)
+        )
+    }
+
+    await t.test("MultitouchWatchdog: source는 진행해도 touch record가 멎으면 device 복구") {
+        let watchdog = MultitouchWatchdog(stallTimeout: 1.5)
+        var heartbeat = MultitouchHeartbeat(now: 10.0)
+        heartbeat.observe(
+            frame(source: 20, timestamp: 5.0, touchFrame: 7),
+            receivedAt: 10.0
+        )
+        heartbeat.observe(
+            frame(source: 21, timestamp: 5.1, touchFrame: 7),
+            receivedAt: 11.6
+        )
+        try expectEqual(
+            watchdog.evaluate(
+                engaged: true, recoveringDevice: false,
+                now: 11.6, heartbeat: heartbeat
+            ),
+            .recoverDevice(.contactFrozen)
+        )
+    }
+
+    await t.test("MultitouchWatchdog: 재연결 뒤에도 프레임이 없을 때만 forceRelease") {
+        let watchdog = MultitouchWatchdog(stallTimeout: 1.5)
+        let heartbeat = MultitouchHeartbeat(now: 100.0)
+        try expectEqual(
+            watchdog.evaluate(
+                engaged: true, recoveringDevice: true,
+                now: 101.5, heartbeat: heartbeat
+            ),
+            .forceRelease(.callbackSilent)
+        )
+    }
+
+    await t.test("MultitouchWatchdog: source가 진행하는 24시간 hold는 정상") {
+        let watchdog = MultitouchWatchdog(stallTimeout: 1.5)
+        var heartbeat = MultitouchHeartbeat(now: 0)
+        heartbeat.observe(
+            frame(source: 1_000_000, timestamp: 86_400.0),
+            receivedAt: 86_400.0
+        )
+        try expectEqual(
+            watchdog.evaluate(
+                engaged: true, recoveringDevice: false,
+                now: 86_400.1, heartbeat: heartbeat
+            ),
             .none
         )
     }
 
-    await t.test("MultitouchWatchdog: 프레임은 살아도 접촉 수가 오래 0으로 안 돌아오면 recoverStuck") {
-        let w = MultitouchWatchdog(stallTimeout: 1.5,
-                                   idleReregisterInterval: 1800,
-                                   stuckTouchTimeout: 45)
+    await t.test("MultitouchWatchdog: 유휴 상태는 stale이어도 녹음 종료를 만들지 않음") {
+        let watchdog = MultitouchWatchdog(stallTimeout: 1.5)
+        let heartbeat = MultitouchHeartbeat(now: 0)
         try expectEqual(
-            w.evaluate(engaged: true, currentCount: 5, now: 145,
-                       lastFrameAt: 144.9, lastDeviceStartAt: 0.0,
-                       engagedAt: 100),
-            .recoverStuck
-        )
-    }
-
-    await t.test("MultitouchWatchdog: 최대 hold 직전에는 정상 긴 PTT로 보고 none") {
-        let w = MultitouchWatchdog(stallTimeout: 1.5,
-                                   idleReregisterInterval: 1800,
-                                   stuckTouchTimeout: 45)
-        try expectEqual(
-            w.evaluate(engaged: true, currentCount: 5, now: 144.9,
-                       lastFrameAt: 144.8, lastDeviceStartAt: 0.0,
-                       engagedAt: 100),
-            .none
-        )
-    }
-
-    await t.test("MultitouchWatchdog: stall 경계 — 정확히 timeout이면 복구, 직전이면 none") {
-        let w = MultitouchWatchdog(stallTimeout: 1.5, idleReregisterInterval: 1800)
-        try expectEqual(
-            w.evaluate(engaged: true, currentCount: 5, now: 1.5,
-                       lastFrameAt: 0.0, lastDeviceStartAt: 0.0),
-            .recoverStuck
-        )
-        try expectEqual(
-            w.evaluate(engaged: true, currentCount: 5, now: 1.49,
-                       lastFrameAt: 0.0, lastDeviceStartAt: 0.0),
-            .none
-        )
-    }
-
-    await t.test("MultitouchWatchdog: 유휴 + 접촉 0 + 간격 경과면 reregisterIdle") {
-        let w = MultitouchWatchdog(stallTimeout: 1.5, idleReregisterInterval: 1800)
-        try expectEqual(
-            w.evaluate(engaged: false, currentCount: 0, now: 1801,
-                       lastFrameAt: 0.0, lastDeviceStartAt: 0.0),
-            .reregisterIdle
-        )
-    }
-
-    await t.test("MultitouchWatchdog: 유휴여도 접촉이 남아 있으면 재등록 보류(제스처 끊김 방지)") {
-        let w = MultitouchWatchdog(stallTimeout: 1.5, idleReregisterInterval: 1800)
-        // 간격은 지났지만 손가락이 닿아 있음(count>0) → 재등록하지 않는다
-        try expectEqual(
-            w.evaluate(engaged: false, currentCount: 2, now: 5000,
-                       lastFrameAt: 4999, lastDeviceStartAt: 0.0),
-            .none
-        )
-    }
-
-    await t.test("MultitouchWatchdog: 유휴지만 간격 미경과면 none") {
-        let w = MultitouchWatchdog(stallTimeout: 1.5, idleReregisterInterval: 1800)
-        try expectEqual(
-            w.evaluate(engaged: false, currentCount: 0, now: 1799,
-                       lastFrameAt: 0.0, lastDeviceStartAt: 0.0),
-            .none
-        )
-    }
-
-    await t.test("MultitouchWatchdog: 녹음 중 판정이 유휴 재등록보다 우선") {
-        let w = MultitouchWatchdog(stallTimeout: 1.5, idleReregisterInterval: 1800)
-        // engaged면 idle 간격이 아무리 지나도 recover/none만 나오고 reregisterIdle은 안 난다
-        try expectEqual(
-            w.evaluate(engaged: true, currentCount: 5, now: 100000,
-                       lastFrameAt: 99999.9, lastDeviceStartAt: 0.0),
+            watchdog.evaluate(
+                engaged: false, recoveringDevice: false,
+                now: 100_000, heartbeat: heartbeat
+            ),
             .none
         )
     }

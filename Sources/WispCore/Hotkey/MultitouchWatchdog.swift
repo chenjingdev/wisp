@@ -1,66 +1,57 @@
 import Foundation
 
-/// 비공개 `MultitouchSupport` 프레임 콜백의 장시간 열화를 감지하는 순수 판정기.
+/// 비공개 `MultitouchSupport` 프레임 콜백의 열화를 **관측 가능한 source 신호**로만
+/// 판정하는 순수 판정기.
 ///
 /// 배경: 앱을 오래(실측 ~19시간) 띄워두면 프레임 콜백이 stale해져 5손가락 "뗌"
 /// 프레임(낮은 count)을 빠뜨린다. 그러면 `FingerCountGate`가 `.up`을 못 내
 /// `RecordingController`가 `.recording`에 갇히고, 이후 제스처도 전부 무시된다
 /// (HUD조차 안 뜸). 콜백 자체가 멈출 수 있으므로 **프레임에 의존하지 않는 독립
-/// 타이머**가 마지막 프레임 수신 시각을 보고 이상을 판정해야 한다.
+/// 타이머**가 callback 수신, source frame/timestamp 진행, per-touch frame 진행을 각각
+/// 보고 이상을 판정해야 한다. 녹음 지속시간은 고장 신호가 아니므로 절대 사용하지 않는다.
 ///
 /// `FingerCountGate`처럼 시스템 의존(타이머·실시간)을 갖지 않아 100% 결정적으로
 /// 단위 테스트된다. 실제 타이머·device 재등록은 `MultitouchHotkey`가 소유한다.
 struct MultitouchWatchdog {
     enum Action: Equatable {
         case none
-        /// 녹음 중인데 프레임이 끊김 — 합성 `up`으로 갇힌 녹음을 풀고 device를 재등록한다.
-        case recoverStuck
-        /// 유휴(접촉 없음)가 오래 지속됨 — 콜백이 조용히 죽었을 수 있어 주기적으로 재등록한다.
-        case reregisterIdle
+        /// 첫 장애: 장치를 재연결하고 새 source 스트림으로 실제 hold/release를 다시 판정한다.
+        case recoverDevice(StallReason)
+        /// 재연결 뒤에도 신선한 프레임이 없음: 마지막 수단으로 합성 up을 낸다.
+        case forceRelease(StallReason)
     }
 
-    /// 녹음 중 프레임이 이만큼 끊기면 stall로 본다. 손가락이 닿아 있는 한 멀티터치
-    /// 프레임은 계속 흐르므로(정지해 있어도 보고됨), 정상 PTT에서 이 시간만큼 완전히
-    /// 멈추는 일은 드물다. 보수적으로 잡아 정상 녹음의 조기 종료를 피한다.
+    enum StallReason: String, Equatable {
+        case callbackSilent
+        case sourceFrozen
+        case contactFrozen
+    }
+
+    /// 프레임 콜백/source 진척이 이만큼 완전히 멈추면 장치 장애로 본다.
     let stallTimeout: TimeInterval
-    /// 접촉이 전혀 없을 때 device를 주기적으로 재등록하는 간격(콜백 stale 예방).
-    let idleReregisterInterval: TimeInterval
-    /// 프레임은 계속 오지만 접촉 수가 0으로 돌아오지 않는 stale 상태를 끊는 상한.
-    /// 실제 장문 받아쓰기를 자르지 않도록 일반 watchdog보다 훨씬 길게 둔다.
-    let stuckTouchTimeout: TimeInterval
 
-    init(stallTimeout: TimeInterval = 1.5,
-         idleReregisterInterval: TimeInterval = 1800,
-         stuckTouchTimeout: TimeInterval = 45) {
+    init(stallTimeout: TimeInterval = 1.5) {
         self.stallTimeout = stallTimeout
-        self.idleReregisterInterval = idleReregisterInterval
-        self.stuckTouchTimeout = stuckTouchTimeout
     }
 
-    /// - Parameters:
-    ///   - engaged: `FingerCountGate`가 `.down`을 냈고 아직 `.up`을 안 낸 상태(=녹음 중으로 간주).
-    ///   - currentCount: 마지막 프레임의 접촉 수(유휴 재등록이 진행 중 제스처를 끊지 않게 가드).
-    ///   - engagedAt: `.down`이 발생한 시각. nil이면 최대 hold 복구는 건너뛴다.
-    ///   - now: 단조 증가 타임스탬프(초).
-    ///   - lastFrameAt: 마지막 프레임을 받은 시각.
-    ///   - lastDeviceStartAt: 마지막으로 device를 (재)등록한 시각.
-    func evaluate(engaged: Bool, currentCount: Int, now: TimeInterval,
-                  lastFrameAt: TimeInterval, lastDeviceStartAt: TimeInterval,
-                  engagedAt: TimeInterval? = nil) -> Action {
-        if engaged {
-            // 녹음 중 프레임이 끊겼으면 "뗌"을 영영 못 받는다 — 합성 up으로 복구.
-            if now - lastFrameAt >= stallTimeout { return .recoverStuck }
-            // 프레임은 계속 오지만 count가 0으로 돌아오지 않는 stale도 있다. 정상 긴 PTT와
-            // 구분이 불가능하므로 상한을 길게 잡아 무한 갇힘만 끊는다.
-            if currentCount > 0, let engagedAt, now - engagedAt >= stuckTouchTimeout {
-                return .recoverStuck
-            }
-            return .none
+    func evaluate(engaged: Bool,
+                  recoveringDevice: Bool,
+                  now: TimeInterval,
+                  heartbeat: MultitouchHeartbeat) -> Action {
+        guard engaged else { return .none }
+
+        let reason: StallReason?
+        if now - heartbeat.lastCallbackAt >= stallTimeout {
+            reason = .callbackSilent
+        } else if now - heartbeat.lastSourceProgressAt >= stallTimeout {
+            reason = .sourceFrozen
+        } else if now - heartbeat.lastContactProgressAt >= stallTimeout {
+            reason = .contactFrozen
+        } else {
+            reason = nil
         }
-        // 유휴: 접촉이 없을 때만(진행 중 제스처를 끊지 않게) 오래된 등록을 갱신한다.
-        if currentCount == 0, now - lastDeviceStartAt >= idleReregisterInterval {
-            return .reregisterIdle
-        }
-        return .none
+
+        guard let reason else { return .none }
+        return recoveringDevice ? .forceRelease(reason) : .recoverDevice(reason)
     }
 }
