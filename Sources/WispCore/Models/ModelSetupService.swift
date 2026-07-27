@@ -36,30 +36,44 @@ final class ModelSetupService {
         return destination
     }
 
-    /// 진행률을 실시간으로 보고하는 URLSession 다운로더. delegate의 didWriteData로
-    /// 받은 바이트 비율을 콜백한다(콜백은 delegate 큐에서 호출됨 — 호출부에서 메인 디스패치).
+    /// 진행률을 실시간으로 보고하는 URLSession 다운로더.
+    ///
+    /// `URLSession.shared.download(from:delegate:)`의 per-task delegate로는 didWriteData
+    /// 증분 콜백이 **오지 않아**(실측 확인) 진행률이 0%에 멈췄다가 끝에야 100%로 튄다. 그래서
+    /// **세션 생성 시점에 delegate를 단 전용 URLSession + downloadTask**로 받는다 — 이 경로는
+    /// didWriteData가 정상 호출된다. delegate 큐(nil→백그라운드 직렬 큐)에서 콜백되므로
+    /// 호출부(ModelManager)가 메인으로 디스패치한다.
     private static let urlSessionDownloader: Downloader = { url, progress in
-        let delegate = ProgressDelegate(onProgress: progress)
-        let (tmp, response) = try await URLSession.shared.download(from: url, delegate: delegate)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw WispError.modelDownloadFailed("HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)")
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<URL, Error>) in
+            let delegate = DownloadProgressDelegate(onProgress: progress, continuation: cont)
+            let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+            delegate.session = session   // 끝날 때까지 세션을 살려두고, 완료 시 invalidate로 끊는다
+            session.downloadTask(with: url).resume()
         }
-        progress(1.0)
-        return tmp
     }
 }
 
-/// 다운로드 진행률만 전달하는 경량 delegate. 완료 파일은 async download가 반환하므로
-/// didFinishDownloadingTo는 비워둔다(프로토콜 요구사항 충족용).
-private final class ProgressDelegate: NSObject, URLSessionDownloadDelegate {
-    let onProgress: (Double) -> Void
+/// 진행률 콜백 + 완료/실패를 continuation으로 잇는 다운로드 delegate. didFinishDownloadingTo의
+/// 임시 파일은 메서드 반환 시 삭제되므로 즉시 안전한 위치로 옮겨 넘긴다.
+private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
+    private let onProgress: (Double) -> Void
+    private var continuation: CheckedContinuation<URL, Error>?
+    /// 세션을 살려두기 위한 강한 참조(세션 ⇄ delegate 순환은 finishTasksAndInvalidate로 끊김).
+    var session: URLSession?
 
-    init(onProgress: @escaping (Double) -> Void) {
+    init(onProgress: @escaping (Double) -> Void,
+         continuation: CheckedContinuation<URL, Error>) {
         self.onProgress = onProgress
+        self.continuation = continuation
     }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                    didFinishDownloadingTo location: URL) {}
+    /// continuation은 정확히 한 번만 재개한다(성공 후 didCompleteWithError(nil) 중복 호출 방어).
+    private func finish(_ result: Result<URL, Error>, invalidate session: URLSession) {
+        session.finishTasksAndInvalidate()
+        guard let c = continuation else { return }
+        continuation = nil
+        c.resume(with: result)
+    }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                     didWriteData bytesWritten: Int64,
@@ -67,5 +81,30 @@ private final class ProgressDelegate: NSObject, URLSessionDownloadDelegate {
                     totalBytesExpectedToWrite: Int64) {
         guard totalBytesExpectedToWrite > 0 else { return }
         onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didFinishDownloadingTo location: URL) {
+        if let http = downloadTask.response as? HTTPURLResponse, http.statusCode != 200 {
+            finish(.failure(WispError.modelDownloadFailed("HTTP \(http.statusCode)")), invalidate: session)
+            return
+        }
+        // location은 이 메서드가 반환되는 즉시 사라지므로 동기적으로 옮겨둔다.
+        let safe = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wisp-model-\(UUID().uuidString)")
+        do {
+            try FileManager.default.moveItem(at: location, to: safe)
+            onProgress(1.0)
+            finish(.success(safe), invalidate: session)
+        } catch {
+            finish(.failure(error), invalidate: session)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    didCompleteWithError error: Error?) {
+        // 성공 시엔 didFinishDownloadingTo에서 이미 처리됨(continuation=nil). 네트워크 실패 등
+        // 완료 콜백 없이 끝난 경우만 여기서 실패로 잇는다.
+        if let error { finish(.failure(error), invalidate: session) }
     }
 }

@@ -4,6 +4,7 @@ actor TranscriptionService: Transcribing {
     private let modelURL: URL
     private let vadModelURL: URL?
     private var context: WhisperContext?
+    private static let keepWarmSamples = [Float](repeating: 0, count: 16_000)
 
     init(modelURL: URL, vadModelURL: URL? = nil) {
         self.modelURL = modelURL
@@ -15,6 +16,13 @@ actor TranscriptionService: Transcribing {
         if context == nil {
             context = try WhisperContext(modelPath: modelURL.path, vadModelPath: vadModelURL?.path)
         }
+    }
+
+    /// 실제 whisper_full 경로까지 한 번 돌려 Metal/VAD lazy init과 압축 해제 지연을 미리 치른다.
+    func keepWarm(language: String) throws {
+        try warmUp()
+        guard let context else { throw WispError.modelLoadFailed(modelURL.path) }
+        try context.keepWarm(samples: Self.keepWarmSamples, language: language)
     }
 
     func transcribe(samples: [Float], language: String, prompt: String, translate: Bool) async throws -> String {

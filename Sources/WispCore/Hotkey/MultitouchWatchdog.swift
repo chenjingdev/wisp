@@ -25,23 +25,36 @@ struct MultitouchWatchdog {
     let stallTimeout: TimeInterval
     /// 접촉이 전혀 없을 때 device를 주기적으로 재등록하는 간격(콜백 stale 예방).
     let idleReregisterInterval: TimeInterval
+    /// 프레임은 계속 오지만 접촉 수가 0으로 돌아오지 않는 stale 상태를 끊는 상한.
+    /// 실제 장문 받아쓰기를 자르지 않도록 일반 watchdog보다 훨씬 길게 둔다.
+    let stuckTouchTimeout: TimeInterval
 
-    init(stallTimeout: TimeInterval = 1.5, idleReregisterInterval: TimeInterval = 1800) {
+    init(stallTimeout: TimeInterval = 1.5,
+         idleReregisterInterval: TimeInterval = 1800,
+         stuckTouchTimeout: TimeInterval = 45) {
         self.stallTimeout = stallTimeout
         self.idleReregisterInterval = idleReregisterInterval
+        self.stuckTouchTimeout = stuckTouchTimeout
     }
 
     /// - Parameters:
     ///   - engaged: `FingerCountGate`가 `.down`을 냈고 아직 `.up`을 안 낸 상태(=녹음 중으로 간주).
     ///   - currentCount: 마지막 프레임의 접촉 수(유휴 재등록이 진행 중 제스처를 끊지 않게 가드).
+    ///   - engagedAt: `.down`이 발생한 시각. nil이면 최대 hold 복구는 건너뛴다.
     ///   - now: 단조 증가 타임스탬프(초).
     ///   - lastFrameAt: 마지막 프레임을 받은 시각.
     ///   - lastDeviceStartAt: 마지막으로 device를 (재)등록한 시각.
     func evaluate(engaged: Bool, currentCount: Int, now: TimeInterval,
-                  lastFrameAt: TimeInterval, lastDeviceStartAt: TimeInterval) -> Action {
+                  lastFrameAt: TimeInterval, lastDeviceStartAt: TimeInterval,
+                  engagedAt: TimeInterval? = nil) -> Action {
         if engaged {
             // 녹음 중 프레임이 끊겼으면 "뗌"을 영영 못 받는다 — 합성 up으로 복구.
             if now - lastFrameAt >= stallTimeout { return .recoverStuck }
+            // 프레임은 계속 오지만 count가 0으로 돌아오지 않는 stale도 있다. 정상 긴 PTT와
+            // 구분이 불가능하므로 상한을 길게 잡아 무한 갇힘만 끊는다.
+            if currentCount > 0, let engagedAt, now - engagedAt >= stuckTouchTimeout {
+                return .recoverStuck
+            }
             return .none
         }
         // 유휴: 접촉이 없을 때만(진행 중 제스처를 끊지 않게) 오래된 등록을 갱신한다.

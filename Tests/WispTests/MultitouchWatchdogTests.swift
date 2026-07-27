@@ -18,7 +18,32 @@ func multitouchWatchdogTests(_ t: TestRunner) async {
         // 1.6s 동안 눌렀지만 마지막 프레임이 0.2s 전 → 아직 stall 아님
         try expectEqual(
             w.evaluate(engaged: true, currentCount: 5, now: 11.6,
-                       lastFrameAt: 11.4, lastDeviceStartAt: 0.0),
+                       lastFrameAt: 11.4, lastDeviceStartAt: 0.0,
+                       engagedAt: 10.0),
+            .none
+        )
+    }
+
+    await t.test("MultitouchWatchdog: 프레임은 살아도 접촉 수가 오래 0으로 안 돌아오면 recoverStuck") {
+        let w = MultitouchWatchdog(stallTimeout: 1.5,
+                                   idleReregisterInterval: 1800,
+                                   stuckTouchTimeout: 45)
+        try expectEqual(
+            w.evaluate(engaged: true, currentCount: 5, now: 145,
+                       lastFrameAt: 144.9, lastDeviceStartAt: 0.0,
+                       engagedAt: 100),
+            .recoverStuck
+        )
+    }
+
+    await t.test("MultitouchWatchdog: 최대 hold 직전에는 정상 긴 PTT로 보고 none") {
+        let w = MultitouchWatchdog(stallTimeout: 1.5,
+                                   idleReregisterInterval: 1800,
+                                   stuckTouchTimeout: 45)
+        try expectEqual(
+            w.evaluate(engaged: true, currentCount: 5, now: 144.9,
+                       lastFrameAt: 144.8, lastDeviceStartAt: 0.0,
+                       engagedAt: 100),
             .none
         )
     }

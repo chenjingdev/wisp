@@ -32,6 +32,8 @@ final class MultitouchHotkey {
     // MARK: watchdog 상태 (메인스레드에서만 접근)
     /// FingerCountGate가 `.down`을 냈고 아직 `.up`을 안 낸 상태(=녹음 중으로 간주).
     private var engaged = false
+    /// `.down`이 발생한 시각. 프레임은 살아 있지만 접촉 수가 0으로 안 돌아오는 stale 복구용.
+    private var engagedAt: TimeInterval?
     /// 마지막 프레임 수신 시각 — stall 판정 기준.
     private var lastFrameAt: TimeInterval = 0
     /// 마지막으로 device를 (재)등록한 시각 — 유휴 주기 재등록 기준.
@@ -100,6 +102,7 @@ final class MultitouchHotkey {
         stopDevice()
         gate.reset()
         engaged = false
+        engagedAt = nil
         if Self.shared === self { Self.shared = nil }
     }
 
@@ -170,15 +173,18 @@ final class MultitouchHotkey {
     private func tickWatchdog() {
         let now = ProcessInfo.processInfo.systemUptime
         switch watchdog.evaluate(engaged: engaged, currentCount: currentCount, now: now,
-                                 lastFrameAt: lastFrameAt, lastDeviceStartAt: lastDeviceStartAt) {
+                                 lastFrameAt: lastFrameAt, lastDeviceStartAt: lastDeviceStartAt,
+                                 engagedAt: engagedAt) {
         case .none:
             break
         case .recoverStuck:
-            Self.diag("WATCHDOG: 녹음 중 프레임 stall \(String(format: "%.1f", now - lastFrameAt))s — 합성 up + 재등록")
+            let staleFor = now - (engagedAt ?? lastFrameAt)
+            Self.diag("WATCHDOG: 녹음 중 stale frame=\(String(format: "%.1f", now - lastFrameAt))s hold=\(String(format: "%.1f", staleFor))s count=\(currentCount) — 합성 up + 재등록")
             // 콜백이 stale해 "뗌"을 못 받은 상태 — 게이트를 풀고 device를 재생성한 뒤,
             // 합성 up으로 갇힌 녹음을 정상 종료시킨다(onUp → recognizer → stopAndProcess).
             gate.reset()
             engaged = false
+            engagedAt = nil
             reregisterDevice()
             onUp()
         case .reregisterIdle:
@@ -204,8 +210,14 @@ final class MultitouchHotkey {
                 self.framePeak = 0
             }
             switch self.gate.update(count: count, now: now) {
-            case .down: self.engaged = true; self.onDown()
-            case .up: self.engaged = false; self.onUp()
+            case .down:
+                self.engaged = true
+                self.engagedAt = now
+                self.onDown()
+            case .up:
+                self.engaged = false
+                self.engagedAt = nil
+                self.onUp()
             case .none: break
             }
         }

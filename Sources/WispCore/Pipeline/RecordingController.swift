@@ -8,6 +8,9 @@ final class RecordingController: ObservableObject {
 
     private(set) var processingTask: Task<Void, Never>?
     private var resetTask: Task<Void, Never>?
+    /// 미디어 정지/억제를 보낸 뒤 실제 마이크를 켜기까지 미뤄두는 텀. 텀 중에 stop/cancel이
+    /// 오면 취소돼 마이크가 켜지지 않는다.
+    private var startTask: Task<Void, Never>?
 
     private let audio: AudioServicing
     private var transcription: any Transcribing
@@ -25,6 +28,10 @@ final class RecordingController: ObservableObject {
     private let captureContext: () -> DictationContext
     /// 무음 게이트 peak 문턱. 종료 시점에 평가돼 최신 설정(무음 감지 감도)을 읽는다.
     private let speechThreshold: () -> Float
+    /// 미디어 정지/볼륨 억제가 실제로 적용될 시간을 벌어주려고 마이크 켜기를 늦추는 텀.
+    /// 마이크와 미디어 정지가 거의 동시에 일어나면 멈추기 직전의 재생 음성이 녹음 첫 구간에
+    /// 섞여 환각·오인식을 일으키기 때문이다. 기본 0(텀 없음) — 실제 앱에서만 주입한다.
+    private let micLeadIn: Duration
     /// startRecording에서 캡처해 stopAndProcess가 후처리에 넘긴다.
     private var capturedContext = DictationContext()
     /// 마지막 자동 붙여넣기(.pasted)된 텍스트와 시각. 트랙패드 더블탭 취소가
@@ -46,7 +53,8 @@ final class RecordingController: ObservableObject {
          vocabulary: @escaping () -> String = { "" },
          replace: @escaping (String) -> String = { $0 },
          captureContext: @escaping () -> DictationContext = { DictationContext() },
-         speechThreshold: @escaping () -> Float = { AudioMath.speechPeakThreshold }) {
+         speechThreshold: @escaping () -> Float = { AudioMath.speechPeakThreshold },
+         micLeadIn: Duration = .zero) {
         self.audio = audio
         self.transcription = transcription
         self.postProcess = postProcess
@@ -59,6 +67,7 @@ final class RecordingController: ObservableObject {
         self.replace = replace
         self.captureContext = captureContext
         self.speechThreshold = speechThreshold
+        self.micLeadIn = micLeadIn
     }
 
     func toggleOrStart() {
@@ -78,23 +87,52 @@ final class RecordingController: ObservableObject {
         lastPastedText = nil
         pendingIdleActions = []
         resetTask?.cancel()
+        startTask?.cancel()
         notice = nil
+
+        // 선택 텍스트/클립보드는 핫키를 누른 지금(포커스가 활성 앱에 있을 때) 캡처해야
+        // 한다 — 처리 시점엔 포커스가 이동했을 수 있다. 사용 여부는 종료 모드가 결정.
+        capturedContext = captureContext()
+        let mode = modeProvider()
+        // 마이크보다 **먼저** 미디어를 멈추고/볼륨을 억제한다. 그러면 마이크가 켜질 땐 이미
+        // 조용하다. state는 즉시 .recording으로 올려 HUD·토글이 바로 반응하게 한다.
+        effects.onRecordingStart(mode: mode)
+        state = .recording
+
+        // 미디어 정지가 실제로 적용될 텀을 둔 뒤 마이크를 켠다 — 미디어를 안 건드리는
+        // 모드(.none)거나 텀이 0이면(기본/테스트) 지연 없이 즉시 켠다.
+        let lead: Duration = mode.mediaBehavior == .none ? .zero : micLeadIn
+        if lead == .zero {
+            beginMicCapture()
+        } else {
+            startTask = Task { [weak self] in
+                try? await Task.sleep(for: lead)
+                guard let self, !Task.isCancelled else { return }
+                // 텀 사이 stop/cancel로 .recording을 벗어났으면 마이크를 켜지 않는다.
+                guard self.state == .recording else { return }
+                self.beginMicCapture()
+            }
+        }
+    }
+
+    /// 실제 마이크 입력을 켠다. 실패하면 마이크보다 먼저 멈춰둔 미디어/볼륨을 되돌리고
+    /// 실패 상태로 전환한다.
+    private func beginMicCapture() {
         do {
             try audio.startRecording { [weak self] level in
                 Task { @MainActor in self?.inputLevel = level }
             }
-            // 선택 텍스트/클립보드는 핫키를 누른 지금(포커스가 활성 앱에 있을 때) 캡처해야
-            // 한다 — 처리 시점엔 포커스가 이동했을 수 있다. 사용 여부는 종료 모드가 결정.
-            capturedContext = captureContext()
-            state = .recording
-            effects.onRecordingStart(mode: modeProvider())
         } catch {
+            effects.onRecordingEnd()
             fail("녹음 시작 실패: \(error.localizedDescription)")
         }
     }
 
     func stopAndProcess() {
         guard state == .recording else { return }
+        // 마이크 켜기 텀 중이면 켜지기 전에 중단한다 — 안 그러면 stop 이후에 마이크가
+        // 뒤늦게 켜져 켜짐/꺼짐 순서가 역전된다.
+        startTask?.cancel()
         let mode = modeProvider()
         let targetBundleId = frontmostBundleId()
         // 전환(replaceTranscription)이 전사 도중 일어나도 이 받아쓰기는 stop 시점에 활성이던
@@ -184,6 +222,7 @@ final class RecordingController: ObservableObject {
 
     func cancel() {
         guard state == .recording else { return }
+        startTask?.cancel()   // 텀 중이면 마이크가 켜지기 전에 중단
         audio.cancelRecording()
         effects.onRecordingEnd()
         state = .idle
