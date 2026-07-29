@@ -14,6 +14,8 @@ func transcriptionTests(_ t: TestRunner) async {
         )
         let samples = try WavReader.readMono16k(url: wavURL)
         let service = TranscriptionService(modelURL: modelURL)
+        // 녹음 시작 경로가 실제 Metal residency bridge까지 안전하게 왕복하는지 함께 검증.
+        try await service.prepareForRecording()
         let text = try await service.transcribe(samples: samples, language: "en")
         try expect(text.lowercased().contains("quick brown fox"), "전사 결과: \(text)")
     }

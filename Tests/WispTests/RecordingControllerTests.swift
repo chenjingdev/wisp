@@ -23,10 +23,19 @@ private final class MockAudio: AudioServicing {
 
 private actor MockTranscriber: Transcribing {
     let output: String
+    let failOnPreparation: Bool
+    var preparationCount = 0
     var lastPrompt: String?
     var lastTranslate: Bool?
-    init(output: String = "안녕하세요 테스트입니다") {
+    init(output: String = "안녕하세요 테스트입니다", failOnPreparation: Bool = false) {
         self.output = output
+        self.failOnPreparation = failOnPreparation
+    }
+    func prepareForRecording() async throws {
+        preparationCount += 1
+        if failOnPreparation {
+            throw WispError.modelLoadFailed("test")
+        }
     }
     func transcribe(samples: [Float], language: String, prompt: String, translate: Bool) async throws -> String {
         lastPrompt = prompt
@@ -74,6 +83,7 @@ private final class MockEffects: RecordingEffects {
 @MainActor
 private func makeController(
     audio: MockAudio = MockAudio(),
+    transcription: any Transcribing = MockTranscriber(),
     outcome: PostProcessOutcome = PostProcessOutcome(
         finalText: "다듬어진 텍스트", llmOutput: "다듬어진 텍스트", llmSucceeded: true, llmSeconds: 0.5
     ),
@@ -83,7 +93,7 @@ private func makeController(
 ) -> RecordingController {
     RecordingController(
         audio: audio,
-        transcription: MockTranscriber(),
+        transcription: transcription,
         postProcess: MockPostProcess(outcome: outcome),
         paste: paste,
         history: history,
@@ -95,6 +105,31 @@ private func makeController(
 
 @MainActor
 func recordingControllerTests(_ t: TestRunner) async {
+    await t.test("Pipeline: 녹음 시작마다 모델 residency 준비를 한 번 요청") {
+        let transcriber = MockTranscriber()
+        let controller = makeController(transcription: transcriber)
+
+        controller.startRecording()
+        controller.startRecording() // 이미 recording이면 중복 요청하지 않음
+        controller.stopAndProcess()
+        await controller.processingTask?.value
+
+        try expectEqual(await transcriber.preparationCount, 1)
+    }
+
+    await t.test("Pipeline: 모델 사전 준비 실패가 실제 전사를 막지 않음") {
+        let transcriber = MockTranscriber(failOnPreparation: true)
+        let paste = MockPaste()
+        let controller = makeController(transcription: transcriber, paste: paste)
+
+        controller.startRecording()
+        controller.stopAndProcess()
+        await controller.processingTask?.value
+
+        try expectEqual(await transcriber.preparationCount, 1)
+        try expectEqual(paste.pasted, ["다듬어진 텍스트"])
+    }
+
     await t.test("Pipeline: 해피패스 — LLM 결과 붙여넣고 히스토리 저장") {
         let paste = MockPaste()
         let history = MockHistory()

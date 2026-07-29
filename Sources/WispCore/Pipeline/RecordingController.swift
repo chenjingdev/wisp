@@ -11,6 +11,9 @@ final class RecordingController: ObservableObject {
     /// 미디어 정지/억제를 보낸 뒤 실제 마이크를 켜기까지 미뤄두는 텀. 텀 중에 stop/cancel이
     /// 오면 취소돼 마이크가 켜지지 않는다.
     private var startTask: Task<Void, Never>?
+    /// 녹음 시작과 동시에 모델의 Metal residency를 재요청한다. 실제 전사가 시작될 때까지
+    /// 완료되지 않았으면 기다리되, 준비 실패가 실제 전사 시도를 막지는 않는다.
+    private var modelPreparationTask: Task<Void, Never>?
 
     private let audio: AudioServicing
     private var transcription: any Transcribing
@@ -88,12 +91,14 @@ final class RecordingController: ObservableObject {
         pendingIdleActions = []
         resetTask?.cancel()
         startTask?.cancel()
+        modelPreparationTask?.cancel()
         notice = nil
 
         // 선택 텍스트/클립보드는 핫키를 누른 지금(포커스가 활성 앱에 있을 때) 캡처해야
         // 한다 — 처리 시점엔 포커스가 이동했을 수 있다. 사용 여부는 종료 모드가 결정.
         capturedContext = captureContext()
         let mode = modeProvider()
+        startModelPreparation()
         // 마이크보다 **먼저** 미디어를 멈추고/볼륨을 억제한다. 그러면 마이크가 켜질 땐 이미
         // 조용하다. state는 즉시 .recording으로 올려 HUD·토글이 바로 반응하게 한다.
         effects.onRecordingStart(mode: mode)
@@ -123,6 +128,8 @@ final class RecordingController: ObservableObject {
                 Task { @MainActor in self?.inputLevel = level }
             }
         } catch {
+            modelPreparationTask?.cancel()
+            modelPreparationTask = nil
             effects.onRecordingEnd()
             fail("녹음 시작 실패: \(error.localizedDescription)")
         }
@@ -139,6 +146,8 @@ final class RecordingController: ObservableObject {
         // 엔진으로 끝까지 처리한다 — Task 본문에서 self.transcription을 늦게 읽으면 진행 중
         // 받아쓰기가 새 엔진으로 바뀌는 창이 생긴다. 여기서 동기 캡처해 그 창을 닫는다.
         let transcription = transcription
+        let modelPreparationTask = modelPreparationTask
+        self.modelPreparationTask = nil
         state = .transcribing
 
         processingTask = Task {
@@ -158,11 +167,15 @@ final class RecordingController: ObservableObject {
                 let hasSpeech = AudioMath.hasSpeech(recording.samples, peakThreshold: speechThreshold())
                 MultitouchHotkey.diag("AUDIO: peak=\(pk) rms=\(rms) dur=\(recordSeconds) speech=\(hasSpeech) n=\(recording.samples.count)")
                 guard hasSpeech else {
+                    modelPreparationTask?.cancel()
                     pendingIdleActions = []
                     notice = nil
                     state = .idle
                     return
                 }
+                // 녹음 시작 때 던진 residency 요청은 보통 이미 끝나 있다. 아직 처리 중이어도
+                // 실제 전사 직전에만 합류하며, 실패는 준비 Task 안에서 격리돼 전사를 막지 않는다.
+                await modelPreparationTask?.value
                 let sttStart = Date()
                 let text = try await transcription.transcribe(
                     samples: recording.samples, language: mode.language,
@@ -223,6 +236,8 @@ final class RecordingController: ObservableObject {
     func cancel() {
         guard state == .recording else { return }
         startTask?.cancel()   // 텀 중이면 마이크가 켜지기 전에 중단
+        modelPreparationTask?.cancel()
+        modelPreparationTask = nil
         audio.cancelRecording()
         effects.onRecordingEnd()
         state = .idle
@@ -288,7 +303,31 @@ final class RecordingController: ObservableObject {
     /// stopAndProcess가 시작 시 캡처한 기존 엔진으로 끝까지 처리되고, 교체는 다음 받아쓰기부터
     /// 적용된다 — 전환은 보통 유휴 상태에서 일어난다.
     func replaceTranscription(_ newValue: any Transcribing) {
+        modelPreparationTask?.cancel()
         transcription = newValue
+        // 매우 드물게 녹음 중 모델이 바뀌어도 stop 시점에 사용할 새 엔진을 준비한다.
+        if state == .recording {
+            startModelPreparation()
+        } else {
+            modelPreparationTask = nil
+        }
+    }
+
+    private func startModelPreparation() {
+        modelPreparationTask?.cancel()
+        let transcription = transcription
+        modelPreparationTask = Task(priority: .userInitiated) {
+            guard !Task.isCancelled else { return }
+            do {
+                try await transcription.prepareForRecording()
+                MultitouchHotkey.diag("MODEL: recording-start residency requested")
+            } catch is CancellationError {
+                // 녹음 취소/엔진 교체로 인한 정상 종료.
+            } catch {
+                // 준비는 성능 최적화일 뿐이다. 실제 transcribe가 자체 warmUp/오류 처리를 한다.
+                NSLog("Wisp: 녹음 시작 모델 준비 실패 — \(error)")
+            }
+        }
     }
 
     private func save(_ record: DictationRecord) {

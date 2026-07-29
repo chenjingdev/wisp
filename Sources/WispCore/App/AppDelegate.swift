@@ -56,8 +56,6 @@ public final class AppContainer: ObservableObject {
     private var pasteService: PasteService?
     /// 종료 시 미디어/볼륨 복원을 위해 보관.
     private var effects: RecordingEffectsService?
-    /// 모델이 macOS 압축/스왑으로 차갑게 식지 않도록 실제 전사 경로를 주기적으로 데운다.
-    private var transcriptionKeepAliveTask: Task<Void, Never>?
     private var cancellables: Set<AnyCancellable> = []
 
     /// 현재 설정된 단축키의 표시용 라벨
@@ -152,7 +150,7 @@ public final class AppContainer: ObservableObject {
             do {
                 try await transcription.warmUp()
                 statusText = "모델 데우는 중…"
-                try await transcription.keepWarm(language: keepAliveLanguage())
+                try await transcription.primeInference(language: primingLanguage())
             } catch WispError.modelLoadFailed {
                 // 모델 파일 손상 추정 — 삭제 후 다시 다운로드하도록 셋업 창으로 안내.
                 try? FileManager.default.removeItem(at: modelURL)
@@ -206,7 +204,6 @@ public final class AppContainer: ObservableObject {
                 micLeadIn: .milliseconds(150)
             )
             self.controller = controller
-            startTranscriptionKeepAlive(transcription)
             hud.speechPeakThreshold = config.speechPeakThreshold
             bindHUD(controller)
             registerHotkey(controller)
@@ -243,9 +240,8 @@ public final class AppContainer: ObservableObject {
             let service = TranscriptionService(modelURL: url, vadModelURL: AppPaths.vadModelURL)
             do {
                 try await service.warmUp()
-                try await service.keepWarm(language: keepAliveLanguage())
+                try await service.primeInference(language: primingLanguage())
                 controller?.replaceTranscription(service)
-                startTranscriptionKeepAlive(service)
                 statusText = "대기 중 (\(hotkeyLabel)) — \(model.displayName)"
             } catch {
                 statusText = "모델 전환 실패: \(error.localizedDescription)"
@@ -355,34 +351,13 @@ public final class AppContainer: ObservableObject {
 
     /// 앱 종료 시 호출 — 녹음 중이었다면 일시정지한 미디어/낮춘 볼륨을 복원.
     func cleanupOnQuit() {
-        transcriptionKeepAliveTask?.cancel()
         effects?.onRecordingEnd()
     }
 
-    private func keepAliveLanguage() -> String {
+    private func primingLanguage() -> String {
         let mode = try? modeStore.mode(id: activeModeId)
         let language = mode?.language.trimmingCharacters(in: .whitespacesAndNewlines) ?? "ko"
         return language.isEmpty || language == "auto" ? "ko" : language
-    }
-
-    private func startTranscriptionKeepAlive(_ transcription: TranscriptionService) {
-        transcriptionKeepAliveTask?.cancel()
-        let language = keepAliveLanguage()
-        transcriptionKeepAliveTask = Task.detached(priority: .utility) { [transcription] in
-            while !Task.isCancelled {
-                do {
-                    try await transcription.keepWarm(language: language)
-                } catch {
-                    NSLog("Wisp: 모델 keepalive 실패 — \(error)")
-                }
-
-                do {
-                    try await Task.sleep(nanoseconds: 300_000_000_000)
-                } catch {
-                    break
-                }
-            }
-        }
     }
 
     /// 권한 온보딩 창을 연다 (메뉴에서 호출).

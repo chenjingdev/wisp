@@ -14,6 +14,10 @@ protocol AudioServicing: AnyObject {
 }
 
 protocol Transcribing: Actor {
+    /// 녹음이 시작된 순간 모델 가중치의 GPU residency를 미리 요청한다.
+    /// 실제 추론은 수행하지 않으며, 실패해도 뒤이은 실제 전사는 독립적으로 재시도한다.
+    func prepareForRecording() async throws
+
     /// prompt: whisper initial_prompt(인식 힌트, 빈 문자열이면 미사용).
     /// translate: 켜면 영어로 번역(transcribe가 아닌 translate task).
     func transcribe(samples: [Float], language: String, prompt: String, translate: Bool) async throws -> String
