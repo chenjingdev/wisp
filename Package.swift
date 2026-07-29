@@ -34,6 +34,7 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("Carbon"),
                 .linkedFramework("ApplicationServices"),
+                .linkedFramework("IOKit"),
             ]
         ),
         .executableTarget(name: "Wisp", dependencies: ["WispCore"]),

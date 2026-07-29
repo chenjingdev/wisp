@@ -48,6 +48,30 @@ func multitouchWatchdogTests(_ t: TestRunner) async {
         )
     }
 
+    func serviceIdentity(
+        registryID: UInt64,
+        multitouchID: UInt64? = nil,
+        serial: String? = nil,
+        transport: String? = "Bluetooth",
+        builtIn: Bool? = false,
+        vendorID: UInt64? = 76,
+        productID: UInt64? = 613,
+        familyID: UInt64? = 129,
+        locationID: UInt64? = nil
+    ) -> MultitouchServiceIdentity {
+        MultitouchServiceIdentity(
+            registryID: registryID,
+            multitouchID: multitouchID,
+            serialNumber: serial,
+            transport: transport,
+            builtIn: builtIn,
+            vendorID: vendorID,
+            productID: productID,
+            familyID: familyID,
+            locationID: locationID
+        )
+    }
+
     await t.test("MultitouchFrame: raw path 중 MakeTouch/Touching만 실제 접촉으로 계산") {
         let decoded = decodedFrame(
             states: [3, 4, 5, 6, 7],
@@ -100,10 +124,147 @@ func multitouchWatchdogTests(_ t: TestRunner) async {
         try expectEqual(probe.observe(first), .first)
         try expectEqual(probe.observe(first), .replay)
         try expectEqual(probe.observe(frame(source: 49, timestamp: 6.9)), .replay)
-        try expectEqual(probe.observe(frame(source: 51, timestamp: 7.1)), .progressing)
+        try expectEqual(probe.observe(frame(source: 51, timestamp: 7.1)), .replay)
+        try expectEqual(probe.observe(frame(source: 52, timestamp: 7.2)), .progressing)
 
         probe.reset()
         try expectEqual(probe.observe(frame(source: 90, timestamp: 9.0)), .first)
+    }
+
+    await t.test("MultitouchRecoveryProbe: A/B stale 교대는 진행으로 오인하지 않음") {
+        var probe = MultitouchRecoveryProbe()
+        try expectEqual(probe.observe(frame(source: 10, timestamp: 1.0)), .first)
+        try expectEqual(probe.observe(frame(source: 11, timestamp: 1.1)), .replay)
+        try expectEqual(probe.observe(frame(source: 10, timestamp: 1.0)), .replay)
+        try expectEqual(probe.observe(frame(source: 11, timestamp: 1.1)), .replay)
+        try expectEqual(probe.observe(frame(source: 10, timestamp: 1.0)), .replay)
+    }
+
+    await t.test("MultitouchRecoveryFrameFilter: 새 service 첫 neutral frame은 즉시 release") {
+        var filter = MultitouchRecoveryFrameFilter()
+        var gate = FingerCountGate(target: 5, debounce: 0)
+        try expectEqual(gate.update(count: 5, now: 0), .down)
+
+        filter.beginTrustedReplacement(serviceID: 20)
+        let neutral = frame(source: 100, timestamp: 10, physicalCount: 0)
+        try expectEqual(
+            filter.observe(neutral, boundServiceID: 10),
+            .waitForExpectedReplacement
+        )
+        try expectEqual(
+            filter.observe(neutral, boundServiceID: 20),
+            .acceptedReplacement
+        )
+        try expectEqual(gate.update(count: 0, now: 1), .up)
+        try expectEqual(filter.mode, .none)
+    }
+
+    await t.test("MultitouchRecoveryFrameFilter: 같은 service는 A/B/C 진행 뒤 판정") {
+        var filter = MultitouchRecoveryFrameFilter()
+        filter.beginSameServiceProbe()
+        try expectEqual(
+            filter.observe(frame(source: 10, timestamp: 1.0), boundServiceID: 20),
+            .waitForProgress
+        )
+        try expectEqual(
+            filter.observe(frame(source: 11, timestamp: 1.1), boundServiceID: 20),
+            .waitForProgress
+        )
+        try expectEqual(
+            filter.observe(frame(source: 10, timestamp: 1.0), boundServiceID: 20),
+            .waitForProgress
+        )
+        try expectEqual(
+            filter.observe(frame(source: 11, timestamp: 1.1), boundServiceID: 20),
+            .waitForProgress
+        )
+        try expectEqual(
+            filter.observe(frame(source: 12, timestamp: 1.2), boundServiceID: 20),
+            .acceptedProgress
+        )
+        try expectEqual(filter.mode, .none)
+    }
+
+    await t.test("MultitouchRecoveryFrameFilter: watchdog가 먼저 새 service를 bind해도 교체로 분류") {
+        var filter = MultitouchRecoveryFrameFilter()
+        filter.beginSameServiceProbe()
+        filter.finishRebind(previousServiceID: 10, boundServiceID: 20)
+        try expectEqual(filter.mode, .trustedReplacement(serviceID: 20))
+        try expectEqual(
+            filter.observe(
+                frame(source: 100, timestamp: 10, physicalCount: 0),
+                boundServiceID: 20
+            ),
+            .acceptedReplacement
+        )
+
+        filter.finishRebind(previousServiceID: 20, boundServiceID: 20)
+        try expectEqual(filter.mode, .probingSameService)
+    }
+
+    await t.test("MultitouchServiceIdentity: registry 교체와 다른 물리 장치를 구분") {
+        let old = serviceIdentity(registryID: 10, multitouchID: 100, serial: "A")
+        let replacement = serviceIdentity(registryID: 20, multitouchID: 100, serial: "A")
+        let other = serviceIdentity(registryID: 30, multitouchID: 200, serial: "A")
+        try expect(old.isSamePhysicalDevice(as: replacement))
+        try expect(!old.isSamePhysicalDevice(as: other))
+
+        let serialFallback = serviceIdentity(
+            registryID: 40, multitouchID: nil, serial: "A"
+        )
+        let serialReplacement = serviceIdentity(
+            registryID: 50, multitouchID: nil, serial: "A"
+        )
+        try expect(serialFallback.isSamePhysicalDevice(as: serialReplacement))
+
+        let incompleteBuiltIn = serviceIdentity(
+            registryID: 60,
+            multitouchID: nil,
+            serial: nil,
+            transport: nil,
+            builtIn: true,
+            vendorID: nil,
+            productID: nil,
+            familyID: nil,
+            locationID: nil
+        )
+        let anotherIncompleteBuiltIn = serviceIdentity(
+            registryID: 70,
+            multitouchID: nil,
+            serial: nil,
+            transport: nil,
+            builtIn: true,
+            vendorID: nil,
+            productID: nil,
+            familyID: nil,
+            locationID: nil
+        )
+        try expect(!incompleteBuiltIn.isSamePhysicalDevice(as: anotherIncompleteBuiltIn))
+    }
+
+    await t.test("MultitouchServiceTopology: new-before-old와 중복 notification을 멱등 처리") {
+        let old = serviceIdentity(registryID: 10, multitouchID: 100, serial: "A")
+        let replacement = serviceIdentity(registryID: 20, multitouchID: 100, serial: "A")
+        var topology = MultitouchServiceTopology()
+        topology.seed([old])
+
+        try expectEqual(topology.appeared(old), false)
+        try expectEqual(topology.appeared(replacement), true)
+        try expectEqual(topology.appeared(replacement), false)
+        try expectEqual(topology.serviceIDs, Set([10, 20]))
+        try expectEqual(topology.disappeared(10), old)
+        try expectEqual(topology.disappeared(10), nil)
+        try expectEqual(topology.serviceIDs, Set([20]))
+    }
+
+    await t.test("MultitouchPowerTransition: suspend/resume 쌍당 한 번만 복구") {
+        var transition = MultitouchPowerTransition()
+        try expectEqual(transition.observe(.resumed), false)
+        try expectEqual(transition.observe(.suspended), false)
+        try expectEqual(transition.observe(.willPowerOff), false)
+        try expectEqual(transition.observe(.poweredOn), true)
+        try expectEqual(transition.observe(.resumed), false)
+        try expectEqual(transition.isPending, false)
     }
 
     await t.test("MultitouchWatchdog: callback silence면 device 복구") {
@@ -153,7 +314,7 @@ func multitouchWatchdogTests(_ t: TestRunner) async {
         )
     }
 
-    await t.test("MultitouchWatchdog: 재연결 뒤에도 프레임이 없을 때만 forceRelease") {
+    await t.test("MultitouchWatchdog: 재연결 뒤 프레임이 없어도 시간으로 녹음을 끊지 않음") {
         let watchdog = MultitouchWatchdog(stallTimeout: 1.5)
         let heartbeat = MultitouchHeartbeat(now: 100.0)
         try expectEqual(
@@ -161,7 +322,7 @@ func multitouchWatchdogTests(_ t: TestRunner) async {
                 engaged: true, recoveringDevice: true,
                 now: 101.5, heartbeat: heartbeat
             ),
-            .forceRelease(.callbackSilent)
+            .none
         )
     }
 

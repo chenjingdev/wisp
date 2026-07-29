@@ -22,8 +22,8 @@ struct FingerCountGate {
     let debounce: TimeInterval
     private var engagedSince: TimeInterval?
     private var isDown = false
-    /// watchdog이 장치 복구에도 실패해 합성 up을 낸 뒤, 아직 얹혀 있는 손가락을 새 down으로
-    /// 오인하지 않도록 실제 0-contact 프레임을 볼 때까지 재무장을 막는다.
+    /// system sleep처럼 release frame을 관측할 수 없는 명시적 lifecycle reset 뒤,
+    /// 아직 얹혀 있는 손가락을 새 down으로 오인하지 않게 실제 neutral까지 재무장을 막는다.
     private var blockedUntilNeutral = false
 
     init(target: Int, debounce: TimeInterval = 0.12) {

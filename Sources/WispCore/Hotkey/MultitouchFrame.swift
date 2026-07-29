@@ -155,8 +155,8 @@ struct MultitouchHeartbeat: Equatable {
     }
 }
 
-/// device 재연결 직후 한 번 도착한 stale snapshot을 정상 복구로 오인하지 않게 한다.
-/// 서로 다른 source identity가 연속 두 번 관측돼야 새 스트림이 실제로 진행한다고 본다.
+/// device 재연결 직후 번갈아 replay되는 stale snapshot을 정상 복구로 오인하지 않게 한다.
+/// source timestamp가 두 번 연속 앞으로 가는 A→B→C를 봐야 실제 진행으로 인정한다.
 struct MultitouchRecoveryProbe {
     enum Observation: Equatable {
         case first
@@ -169,22 +169,119 @@ struct MultitouchRecoveryProbe {
         let timestamp: TimeInterval
     }
 
-    private var firstIdentity: SourceIdentity?
+    private var lastIdentity: SourceIdentity?
+    private var forwardTransitions = 0
 
     mutating func reset() {
-        firstIdentity = nil
+        lastIdentity = nil
+        forwardTransitions = 0
     }
 
     mutating func observe(_ frame: MultitouchFrame) -> Observation {
         let identity = SourceIdentity(frame: frame.sourceFrame, timestamp: frame.sourceTimestamp)
-        guard let firstIdentity else {
-            self.firstIdentity = identity
+        guard let lastIdentity else {
+            self.lastIdentity = identity
             return .first
         }
-        // 다른 값이라는 것만으로는 A/B replay를 배제할 수 없다. source timestamp가
-        // 실제로 앞으로 간 경우에만 새 스트림으로 확정한다.
-        guard identity.timestamp > firstIdentity.timestamp else { return .replay }
-        self.firstIdentity = nil
-        return .progressing
+        if identity.timestamp > lastIdentity.timestamp {
+            self.lastIdentity = identity
+            forwardTransitions += 1
+            if forwardTransitions >= 2 {
+                reset()
+                return .progressing
+            }
+            return .replay
+        }
+        if identity != lastIdentity {
+            // A→B→A처럼 뒤로 간 순간부터 새 monotonic run을 다시 센다.
+            self.lastIdentity = identity
+            forwardTransitions = 0
+        }
+        return .replay
+    }
+}
+
+/// 재연결 원인에 따라 새 device의 첫 프레임을 다르게 다룬다.
+///
+/// 같은 IOService를 watchdog이 다시 연 경우에는 driver가 마지막 snapshot 한 장을 replay할
+/// 수 있어 source가 실제로 진행할 때까지 기다린다. 반면 물리 identity가 같은 새 IOService에
+/// 정확히 bind한 경우에는 registry generation 자체가 강한 경계이므로 첫 프레임을 실제
+/// hold/release 증거로 바로 받는다.
+struct MultitouchRecoveryFrameFilter {
+    enum Mode: Equatable {
+        case none
+        case probingSameService
+        case trustedReplacement(serviceID: UInt64)
+    }
+
+    enum Decision: Equatable {
+        case accept
+        case waitForProgress
+        case acceptedProgress
+        case acceptedReplacement
+        case waitForExpectedReplacement
+    }
+
+    private(set) var mode: Mode = .none
+    private var probe = MultitouchRecoveryProbe()
+
+    var isRecovering: Bool {
+        mode != .none
+    }
+
+    mutating func beginSameServiceProbe() {
+        probe.reset()
+        mode = .probingSameService
+    }
+
+    mutating func beginTrustedReplacement(serviceID: UInt64) {
+        probe.reset()
+        mode = .trustedReplacement(serviceID: serviceID)
+    }
+
+    /// 재바인딩을 일으킨 사건 순서와 무관하게 실제 bind 전/후 service ID로 분류한다.
+    /// watchdog tick가 matched notification보다 먼저 새 default를 잡은 경우도 replacement다.
+    mutating func finishRebind(
+        previousServiceID: UInt64?,
+        boundServiceID: UInt64?
+    ) {
+        if let previousServiceID,
+           let boundServiceID,
+           previousServiceID != boundServiceID {
+            beginTrustedReplacement(serviceID: boundServiceID)
+        } else {
+            beginSameServiceProbe()
+        }
+    }
+
+    mutating func clear() {
+        probe.reset()
+        mode = .none
+    }
+
+    mutating func observe(
+        _ frame: MultitouchFrame,
+        boundServiceID: UInt64?
+    ) -> Decision {
+        switch mode {
+        case .none:
+            return .accept
+
+        case .trustedReplacement(let expectedServiceID):
+            guard boundServiceID == expectedServiceID else {
+                return .waitForExpectedReplacement
+            }
+            clear()
+            return .acceptedReplacement
+
+        case .probingSameService:
+            switch probe.observe(frame) {
+            case .first, .replay:
+                return .waitForProgress
+            case .progressing:
+                clear()
+                return .acceptedProgress
+            }
+        }
     }
 }

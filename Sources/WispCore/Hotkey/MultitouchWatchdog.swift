@@ -15,10 +15,8 @@ import Foundation
 struct MultitouchWatchdog {
     enum Action: Equatable {
         case none
-        /// 첫 장애: 장치를 재연결하고 새 source 스트림으로 실제 hold/release를 다시 판정한다.
+        /// 장치를 재연결하고 새 source 스트림으로 실제 hold/release를 다시 판정한다.
         case recoverDevice(StallReason)
-        /// 재연결 뒤에도 신선한 프레임이 없음: 마지막 수단으로 합성 up을 낸다.
-        case forceRelease(StallReason)
     }
 
     enum StallReason: String, Equatable {
@@ -39,6 +37,10 @@ struct MultitouchWatchdog {
                   now: TimeInterval,
                   heartbeat: MultitouchHeartbeat) -> Action {
         guard engaged else { return .none }
+        // 이미 새 device의 실제 source 진행을 기다리는 중이라면 시간 경과만으로 재등록을
+        // 반복하거나 녹음을 끝내지 않는다. 신선한 release frame이 오면
+        // FingerCountGate가 자연스럽게 up을 낸다.
+        guard !recoveringDevice else { return .none }
 
         let reason: StallReason?
         if now - heartbeat.lastCallbackAt >= stallTimeout {
@@ -52,6 +54,6 @@ struct MultitouchWatchdog {
         }
 
         guard let reason else { return .none }
-        return recoveringDevice ? .forceRelease(reason) : .recoverDevice(reason)
+        return .recoverDevice(reason)
     }
 }
