@@ -173,8 +173,10 @@ final class RecordingController: ObservableObject {
                     state = .idle
                     return
                 }
-                // 녹음 시작 때 던진 residency 요청은 보통 이미 끝나 있다. 아직 처리 중이어도
-                // 실제 전사 직전에만 합류하며, 실패는 준비 Task 안에서 격리돼 전사를 막지 않는다.
+                // 녹음 시작 때 던진 가중치 되살리기에 여기서 합류한다. 말하는 동안 대개 끝나
+                // 있지만, 며칠 유휴 뒤 짧게 말하고 뗐다면 실제로 기다리게 된다. 그 대기는 어차피
+                // 전사가 물어야 할 page-in 비용을 앞당긴 것뿐이라 총 시간은 늘지 않는다.
+                // 실패는 준비 Task 안에서 격리돼 전사를 막지 않는다.
                 await modelPreparationTask?.value
                 let sttStart = Date()
                 let text = try await transcription.transcribe(
@@ -319,8 +321,12 @@ final class RecordingController: ObservableObject {
         modelPreparationTask = Task(priority: .userInitiated) {
             guard !Task.isCancelled else { return }
             do {
+                // 소요 시간을 남긴다 — 이 값이 곧 "오래 안 써서 밀려나 있던 정도"다.
+                // 상주 중이면 한 자릿수 ms, 며칠 유휴 뒤면 수 초까지 나올 수 있다.
+                let startedAt = Date()
                 try await transcription.prepareForRecording()
-                MultitouchHotkey.diag("MODEL: recording-start residency requested")
+                let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+                MultitouchHotkey.diag("MODEL: 가중치 준비 완료 \(elapsedMs)ms")
             } catch is CancellationError {
                 // 녹음 취소/엔진 교체로 인한 정상 종료.
             } catch {

@@ -46,10 +46,13 @@ final class WhisperContext {
         guard status == 0 else { throw WispError.transcriptionFailed(status) }
     }
 
-    /// 모델은 프로세스 수명 동안 강하게 보관된다. 다만 macOS가 GPU residency를 회수할 수
-    /// 있으므로 녹음 시작 이벤트에서 가중치의 재상주를 요청해, 말하는 동안 준비되게 한다.
-    func requestResidency() {
-        whisper_request_residency(ctx)
+    /// 모델은 프로세스 수명 동안 강하게 보관되지만, 며칠씩 안 쓰이면 macOS가 가중치를
+    /// 압축하거나 스왑아웃한다. 그러면 첫 받아쓰기가 수 GB를 되읽는 비용을 그대로 문다.
+    /// 녹음 시작 이벤트에서 이걸 호출해 사용자가 말하는 동안 페이지를 되살려 둔다.
+    /// 스왑아웃 상태면 수 초가 걸리는 블로킹 호출이고, 이미 상주 중이면 거의 공짜다.
+    /// 추론은 돌리지 않으므로 GPU를 점유하지 않는다.
+    func prepareResidency() {
+        whisper_prepare_residency(ctx)
     }
 
     /// language: "auto"면 자동 감지. prompt: initial_prompt(빈 문자열이면 미사용).
