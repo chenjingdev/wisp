@@ -38,11 +38,18 @@ Whisper 모델(1.5GB)은 앱 첫 실행 시 HuggingFace에서 자동 다운로�
 - 지정한 손가락 수를 길게 누르면 받아쓰기(PTT, 떼면 종료). 트랙패드는 토글 없음
 - 톡 1번: Enter(전송) / 톡 2번: ⌘Z(방금 받아쓰기 취소)
 
-  <p>
-  <img src="docs/images/trackpad-hold.png" width="32%" alt="길게 누름: 받아쓰기 (PTT)">
-  <img src="docs/images/trackpad-tap.png" width="32%" alt="톡 1번: Enter (전송)">
-  <img src="docs/images/trackpad-double.png" width="32%" alt="톡 2번: Cmd+Z (방금 받아쓰기 취소)">
-  </p>
+![길게 누름](docs/images/trackpad-hold.png)
+
+길게 누름 — 받아쓰기 (PTT)
+
+![톡 1번](docs/images/trackpad-tap.png)
+
+톡 1번 — Enter (전송)
+
+![톡 2번](docs/images/trackpad-double.png)
+
+톡 2번 — Cmd+Z (방금 받아쓰기 취소)
+
 - 녹음 중 Esc: 취소
 - 메뉴바에서 모드 전환 (받아쓰기 = LLM 없음 / 메시지 / 이메일)
 - LLM 실패 시 STT 원문이 그대로 붙여넣어짐 (입력 무손실)
