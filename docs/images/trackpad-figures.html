@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Wisp trackpad figures</title>
+<style>
+  :root {
+    --ink: #161616;
+    --paper: #fff;
+    --caption: #222;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: #fff;
+    color: var(--caption);
+    font-family: "Apple SD Gothic Neo", "Noto Sans KR", "Helvetica Neue", sans-serif;
+  }
+  .sheet {
+    display: flex;
+    gap: 28px;
+    padding: 24px;
+    width: max-content;
+    background: #fff;
+  }
+  figure {
+    margin: 0;
+    width: 560px;
+    background: var(--paper);
+  }
+  .stage {
+    position: relative;
+    width: 560px;
+    aspect-ratio: 1152 / 864;
+    background: #fff;
+  }
+  .stage img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .stage svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+  figcaption {
+    margin-top: 10px;
+    text-align: center;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.35;
+  }
+  figcaption small {
+    display: block;
+    margin-top: 2px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #444;
+  }
+</style>
+</head>
+<body>
+<!--
+  Overlay coords are in the source image space (1152×864).
+  Fingertip nail centers, measured from trackpad-base.jpg:
+    thumb 434,480  index 538,326  middle 608,312  ring 688,348  pinky 752,446
+-->
+<svg width="0" height="0" aria-hidden="true">
+  <defs>
+    <marker id="head" viewBox="0 0 10 10" refX="8" refY="5"
+            markerWidth="3.2" markerHeight="3.2" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#161616"/>
+    </marker>
+    <marker id="tail" viewBox="0 0 10 10" refX="2" refY="5"
+            markerWidth="3.2" markerHeight="3.2" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#161616"/>
+    </marker>
+  </defs>
+</svg>
+
+<div class="sheet" id="row">
+  <figure id="hold">
+    <div class="stage">
+      <img src="trackpad-base.jpg" alt="">
+      <svg viewBox="0 0 1152 864" fill="none">
+        <!-- hold: press-down arrows above each fingertip + clock -->
+        <line x1="448" y1="392" x2="448" y2="458" stroke="#161616" stroke-width="4" stroke-linecap="round" marker-end="url(#head)"/>
+        <line x1="546" y1="238" x2="546" y2="304" stroke="#161616" stroke-width="4" stroke-linecap="round" marker-end="url(#head)"/>
+        <line x1="612" y1="224" x2="612" y2="290" stroke="#161616" stroke-width="4" stroke-linecap="round" marker-end="url(#head)"/>
+        <line x1="698" y1="260" x2="698" y2="326" stroke="#161616" stroke-width="4" stroke-linecap="round" marker-end="url(#head)"/>
+        <line x1="768" y1="358" x2="768" y2="424" stroke="#161616" stroke-width="4" stroke-linecap="round" marker-end="url(#head)"/>
+        <g transform="translate(872 292)">
+          <circle r="28" stroke="#161616" stroke-width="4"/>
+          <circle r="2.5" fill="#161616"/>
+          <line x1="0" y1="0" x2="0" y2="-14" stroke="#161616" stroke-width="3.2" stroke-linecap="round"/>
+          <line x1="0" y1="0" x2="11" y2="6" stroke="#161616" stroke-width="3.2" stroke-linecap="round"/>
+        </g>
+      </svg>
+    </div>
+    <figcaption>길게 누름<small>받아쓰기 (PTT)</small></figcaption>
+  </figure>
+
+  <figure id="tap">
+    <div class="stage">
+      <img src="trackpad-base.jpg" alt="">
+      <svg viewBox="0 0 1152 864" fill="none">
+        <line x1="392" y1="268" x2="392" y2="412" stroke="#161616" stroke-width="4" stroke-linecap="round" marker-start="url(#tail)" marker-end="url(#head)"/>
+        <circle cx="434" cy="466" r="5.5" fill="#161616"/>
+        <circle cx="538" cy="312" r="5.5" fill="#161616"/>
+        <circle cx="608" cy="298" r="5.5" fill="#161616"/>
+        <circle cx="688" cy="334" r="5.5" fill="#161616"/>
+        <circle cx="752" cy="432" r="5.5" fill="#161616"/>
+      </svg>
+    </div>
+    <figcaption>톡 1번<small>Enter (전송)</small></figcaption>
+  </figure>
+
+  <figure id="double">
+    <div class="stage">
+      <img src="trackpad-base.jpg" alt="">
+      <svg viewBox="0 0 1152 864" fill="none">
+        <line x1="368" y1="268" x2="368" y2="412" stroke="#161616" stroke-width="4" stroke-linecap="round" marker-start="url(#tail)" marker-end="url(#head)"/>
+        <line x1="430" y1="268" x2="430" y2="412" stroke="#161616" stroke-width="4" stroke-linecap="round" marker-start="url(#tail)" marker-end="url(#head)"/>
+        <circle cx="434" cy="466" r="5.5" fill="#161616"/>
+        <circle cx="538" cy="312" r="5.5" fill="#161616"/>
+        <circle cx="608" cy="298" r="5.5" fill="#161616"/>
+        <circle cx="688" cy="334" r="5.5" fill="#161616"/>
+        <circle cx="752" cy="432" r="5.5" fill="#161616"/>
+      </svg>
+    </div>
+    <figcaption>톡 2번<small>Cmd+Z (방금 받아쓰기 취소)</small></figcaption>
+  </figure>
+</div>
+</body>
+</html>
