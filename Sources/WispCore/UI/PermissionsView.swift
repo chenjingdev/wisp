@@ -129,3 +129,7 @@ struct PermissionsView: View {
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
     }
 }
+
+extension PermissionsView {
+    static let windowContentSize = CGSize(width: 440, height: 360)
+}

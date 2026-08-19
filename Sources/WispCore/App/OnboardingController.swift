@@ -21,11 +21,20 @@ final class OnboardingController {
     func show() {
         if window == nil {
             let view = PermissionsView(model: model) { [weak self] in self?.close() }
-            let hosting = NSHostingController(rootView: view)
-            let win = NSWindow(contentViewController: hosting)
+            let hosting = NSHostingView(rootView: view)
+            hosting.sizingOptions = []
+            hosting.frame = NSRect(origin: .zero, size: PermissionsView.windowContentSize)
+            let win = NSWindow(
+                contentRect: NSRect(origin: .zero, size: PermissionsView.windowContentSize),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
             win.title = "Wisp"
-            win.styleMask = [.titled, .closable]
             win.isReleasedWhenClosed = false
+            win.contentMinSize = PermissionsView.windowContentSize
+            win.contentMaxSize = PermissionsView.windowContentSize
+            win.contentView = hosting
             win.center()
             window = win
         }
