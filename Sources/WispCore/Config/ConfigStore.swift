@@ -3,7 +3,7 @@ import Foundation
 struct WispConfig: Codable, Equatable {
     var hotkeyKeyCode: UInt32 = 49        // Space
     var hotkeyModifiers: UInt32 = 2048    // Carbon optionKey
-    /// 단독 보조키 핫키 ("control"/"option"/"command"/"shift").
+    /// 단독 보조키 핫키 ("control"/"option"/"command"/"shift"/"function").
     /// 설정되면 keyCode+modifiers 콤보 대신 이 보조키 단독 누름을 사용한다.
     var hotkeyBareModifier: String? = "control"
     var pushToTalkThreshold: Double = 0.4

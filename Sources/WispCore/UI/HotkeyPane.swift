@@ -14,7 +14,9 @@ struct HotkeyPane: View {
                     }
                     .frame(minWidth: 180)
                 }
-                Text("보조키만 눌렀다 떼면 단독키(예: ⌃), 일반 키와 함께 누르면 조합키(예: ⌥Space)")
+                Text("보조키만 눌렀다 떼면 단독키(예: fn, ⌃), 일반 키와 함께 누르면 조합키(예: ⌥Space)")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("Fn은 단독키만 지원하며 Fn+화살표·삭제 같은 macOS 조합에도 Wisp가 잠깐 반응할 수 있습니다. 이모티콘·입력 소스 전환이 겹치면 시스템 설정 → 키보드의 “🌐/fn 키를 눌러” 동작을 “아무것도 안 함”으로 바꾸세요.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

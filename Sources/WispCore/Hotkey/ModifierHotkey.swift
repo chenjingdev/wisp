@@ -1,6 +1,6 @@
 import AppKit
 
-/// 단독 보조키(예: ⌃ Control) 전역 핫키. Carbon RegisterEventHotKey는 보조키
+/// 단독 보조키(예: fn Fn, ⌃ Control) 전역 핫키. Carbon RegisterEventHotKey는 보조키
 /// 단독 등록을 지원하지 않으므로 NSEvent 전역 모니터(flagsChanged/keyDown)로
 /// 구현한다. 손쉬운 사용 권한이 없으면 전역 모니터에 이벤트가 오지 않는다.
 ///
@@ -33,6 +33,7 @@ final class ModifierHotkey {
         case "option": return .option
         case "command": return .command
         case "shift": return .shift
+        case "function": return .function
         default: return nil
         }
     }
@@ -62,7 +63,7 @@ final class ModifierHotkey {
     }
 
     private func handleFlagsChanged(_ event: NSEvent) {
-        let mods = event.modifierFlags.intersection([.control, .option, .command, .shift])
+        let mods = event.modifierFlags.intersection([.control, .option, .command, .shift, .function])
         let hasFlag = mods.contains(flag)
         var others = mods
         others.subtract(flag)

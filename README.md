@@ -1,6 +1,7 @@
 # Wisp
 
-전부 로컬에서 도는 macOS 음성 입력 앱. 전역 단축키(⌃ Control 단독키) 또는
+전부 로컬에서 도는 macOS 음성 입력 앱. 전역 단축키(기본 ⌃ Control 단독키,
+fn/⌥/⌘/⇧로 변경 가능) 또는
 트랙패드 손가락 트리거 → 로컬 Whisper(large-v3-turbo, Metal) 전사 →
 codex spark LLM 후처리 → 활성 앱에 자동 붙여넣기.
 
@@ -31,6 +32,10 @@ Whisper 모델(1.5GB)은 앱 첫 실행 시 HuggingFace에서 자동 다운로�
 ## 사용
 
 - ⌃(Control) 짧게 탭: 녹음 토글 / 길게(0.4초+) 누른 채 말하기: push-to-talk
+- 설정 → 단축키에서 fn(Fn/Globe) 단독키, ⌃·⌥·⌘·⇧ 단독키 또는
+  ⌃·⌥·⌘·⇧ 조합키로 변경 가능
+  - fn을 쓰면서 이모티콘·입력 소스 전환이 함께 실행되면 시스템 설정 → 키보드의
+    “🌐/fn 키를 눌러” 동작을 “아무것도 안 함”으로 바꾸면 됨
 - ⌃ 조합키(⌃C 등)를 누르면 그 누름은 단축키로 치지 않는다 — 시작 직후면
   녹음 자동 취소, 토글 녹음 중이면 녹음 유지
 - 트랙패드: 기본 꺼짐. 설정 → 단축키 → "트랙패드 손가락 트리거"를 켜면 됨
@@ -57,7 +62,7 @@ Whisper 모델(1.5GB)은 앱 첫 실행 시 HuggingFace에서 자동 다운로�
 - 녹음 중 Esc: 취소
 - 메뉴바에서 모드 전환 (받아쓰기 = LLM 없음 / 메시지 / 이메일)
 - LLM 실패 시 STT 원문이 그대로 붙여넣어짐 (입력 무손실)
-- 단축키 변경: `config.json`의 `hotkeyBareModifier`(control/option/command/shift,
+- 단축키 변경: `config.json`의 `hotkeyBareModifier`(control/option/command/shift/function,
   단독 보조키) 또는 null로 두고 `hotkeyKeyCode`+`hotkeyModifiers`(Carbon 콤보)
 - 메뉴바 → "Wisp 열기…": 설정·단축키 레코더·모드 편집·히스토리 창 (Phase 3) —
   설정 변경은 재시작 없이 즉시 적용된다

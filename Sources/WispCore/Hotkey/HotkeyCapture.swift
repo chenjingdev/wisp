@@ -5,7 +5,7 @@ import AppKit
 struct HotkeyCapture {
     enum Outcome: Equatable {
         case combo(keyCode: UInt32, carbonModifiers: UInt32)
-        case bareModifier(String)   // "control" | "option" | "command" | "shift"
+        case bareModifier(String)   // "control" | "option" | "command" | "shift" | "function"
         case cancelled              // Esc
         case pending                // 보조키 누름 진행 중 — 계속 대기
         case ignored                // 지원하지 않는 입력 (보조키 없는 일반키 등)
@@ -16,13 +16,13 @@ struct HotkeyCapture {
     mutating func handleKeyDown(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> Outcome {
         if keyCode == 53 { return .cancelled }  // Esc
         let carbon = Self.carbonModifiers(from: flags)
-        guard carbon != 0 else { return .ignored }  // 무보조키 단축키는 위험 — 금지
         lastModifiers = []
+        guard carbon != 0 else { return .ignored }  // 무보조키 단축키는 위험 — 금지
         return .combo(keyCode: UInt32(keyCode), carbonModifiers: carbon)
     }
 
     mutating func handleFlagsChanged(flags: NSEvent.ModifierFlags) -> Outcome {
-        let mods = flags.intersection([.control, .option, .command, .shift])
+        let mods = flags.intersection([.control, .option, .command, .shift, .function])
         defer { lastModifiers = mods }
         // 모두 떼어졌고 직전에 정확히 하나만 눌려 있었다면 → 단독 보조키 확정
         if mods.isEmpty, let name = Self.singleName(of: lastModifiers) {
@@ -41,11 +41,12 @@ struct HotkeyCapture {
     }
 
     static func singleName(of flags: NSEvent.ModifierFlags) -> String? {
-        switch flags.intersection([.control, .option, .command, .shift]) {
+        switch flags.intersection([.control, .option, .command, .shift, .function]) {
         case [.control]: return "control"
         case [.option]: return "option"
         case [.command]: return "command"
         case [.shift]: return "shift"
+        case [.function]: return "function"
         default: return nil
         }
     }
