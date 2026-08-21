@@ -21,11 +21,20 @@ final class ModelSetupController {
                 self?.onReady?()
                 self?.close()
             }
-            let hosting = NSHostingController(rootView: view)
-            let win = NSWindow(contentViewController: hosting)
+            let hosting = NSHostingView(rootView: view)
+            hosting.sizingOptions = []
+            hosting.frame = NSRect(origin: .zero, size: FirstRunModelView.windowContentSize)
+            let win = NSWindow(
+                contentRect: NSRect(origin: .zero, size: FirstRunModelView.windowContentSize),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
             win.title = "Wisp — 모델 다운로드"
-            win.styleMask = [.titled, .closable]
             win.isReleasedWhenClosed = false
+            win.contentMinSize = FirstRunModelView.windowContentSize
+            win.contentMaxSize = FirstRunModelView.windowContentSize
+            win.contentView = hosting
             win.center()
             window = win
         }

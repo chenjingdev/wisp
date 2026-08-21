@@ -138,35 +138,42 @@ final class PasteService: Pasting {
     /// Return 키 전송(트랙패드 톡 1번 = 전송). postCmdV와 동일하게 손쉬운 사용
     /// 권한이 있어야 시스템에 전달되며, 없으면 조용히 버려진다.
     ///
-    /// HID tap(하드웨어 레벨)으로 쏜다: raw-mode로 stdin을 읽는 터미널 TUI(Claude Code
-    /// 입력 등)는 세션 레벨 합성 키를 흘리는 경우가 있는데, HID 레벨은 실제 키처럼 입력
-    /// 스택 전체를 거쳐 전달돼 더 안정적이다(클릭이 끼면 동작하던 것과 같은 맥락).
-    /// flags를 비워 순수 Return으로 보낸다 — ⇧/⌥+Return은 TUI에서 제출이 아니라 줄바꿈이다.
+    /// macOS 26.2에서는 `.combinedSessionState`로 만든 키 이벤트가 트랙패드 탭 직후
+    /// 대상 앱에 전달되지 않는 경우가 있어, 실제 키보드 이벤트에 가까운 HID system source로
+    /// 보낸다. flags를 비워 순수 Return으로 보낸다 — ⇧/⌥+Return은 TUI에서 제출이 아니라
+    /// 줄바꿈이다.
     static func postReturn() {
-        let source = CGEventSource(stateID: .combinedSessionState)
-        let down = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: true)   // 36 = Return
-        let up = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: false)
-        down?.flags = []
-        up?.flags = []
-        down?.post(tap: .cghidEventTap)
-        up?.post(tap: .cghidEventTap)
+        postKey(36) // 36 = Return
+        MultitouchHotkey.diag("KEY: Return posted via HID system source trusted=\(AXIsProcessTrusted())")
     }
 
     /// Backspace를 count번 전송(트랙패드 톡 2번 = 방금 받아쓴 글자 수만큼 삭제).
     /// ⌘Z(앱 네이티브 undo)와 달리 터미널·검색창 등 undo 스택이 없는 입력에서도
     /// 동작한다 — 커서 앞 글자를 직접 지우기 때문. 받아쓰기 직후(커서 이동 전) 전제.
-    /// Return과 같은 이유로 HID tap + 빈 flags를 쓴다.
+    /// Return과 같은 이유로 HID system source + 빈 flags를 쓴다.
     static func postBackspaces(_ count: Int) {
         guard count > 0 else { return }
-        let s = CGEventSource(stateID: .combinedSessionState)
-        for _ in 0..<count {
-            let down = CGEvent(keyboardEventSource: s, virtualKey: 51, keyDown: true)   // 51 = Delete(Backspace)
-            let up = CGEvent(keyboardEventSource: s, virtualKey: 51, keyDown: false)
-            down?.flags = []
-            up?.flags = []
-            down?.post(tap: .cghidEventTap)
+        for index in 0..<count {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(index) * 0.03) {
+                postKey(51) // 51 = Delete(Backspace)
+            }
+        }
+        MultitouchHotkey.diag("KEY: Backspace x\(count) posted via HID system source trusted=\(AXIsProcessTrusted())")
+    }
+
+    /// macOS 26.2에서 down/up을 같은 run-loop 턴에 붙여 보내면 일부 대상 앱이 간헐적으로
+    /// 놓친다. 실제 키 입력처럼 아주 짧은 press duration을 만들어 안정성을 높인다.
+    private static func postKey(_ keyCode: CGKeyCode) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        let down = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true)
+        let up = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
+        down?.flags = []
+        up?.flags = []
+        down?.post(tap: .cghidEventTap)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.015) {
             up?.post(tap: .cghidEventTap)
         }
+        MultitouchHotkey.diag("KEY: keyCode=\(keyCode) posted once via HID tap")
     }
 
     /// 텍스트를 유니코드 문자열로 직접 타이핑한다(키코드가 아니라 문자 삽입이라

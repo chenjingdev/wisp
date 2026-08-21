@@ -571,13 +571,17 @@ public final class AppContainer: ObservableObject {
             MultitouchHotkey.diag("singleTap → Return")
         }
         recognizer.onDoubleTap = { [weak self, weak controller] in
-            guard let self, let controller, !controller.isBusy,
-                  controller.recentDictationUndoable() else { return }
-            let count = controller.lastPastedText?.count ?? 0
-            controller.markDictationUndone()
-            guard count > 0 else { return }
-            self.sendKeyAfterRelease { PasteService.postBackspaces(count) }
-            MultitouchHotkey.diag("doubleTap → backspace x\(count)")
+            guard let self, let controller else { return }
+            controller.runWhenIdle { [weak self, weak controller] in
+                guard let self, let controller,
+                      controller.recentDictationUndoable()
+                else { return }
+                let count = controller.lastPastedText?.count ?? 0
+                controller.markDictationUndone()
+                guard count > 0 else { return }
+                self.sendKeyAfterRelease { PasteService.postBackspaces(count) }
+                MultitouchHotkey.diag("doubleTap → backspace x\(count)")
+            }
         }
 
         // onDown/onUp은 멀티터치 프레임 스레드→메인 디스패치로 들어온다(handleFrame).

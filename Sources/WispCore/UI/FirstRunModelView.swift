@@ -56,3 +56,7 @@ struct FirstRunModelView: View {
         .frame(width: 540)
     }
 }
+
+extension FirstRunModelView {
+    static let windowContentSize = CGSize(width: 540, height: 520)
+}
