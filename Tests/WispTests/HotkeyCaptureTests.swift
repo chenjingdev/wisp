@@ -19,6 +19,23 @@ func hotkeyCaptureTests(_ t: TestRunner) async {
         try expectEqual(c.handleFlagsChanged(flags: []), .bareModifier("control"))
     }
 
+    await t.test("Capture: Fn만 눌렀다 떼면 단독키") {
+        var c = HotkeyCapture()
+        try expectEqual(c.handleFlagsChanged(flags: [.function]), .pending)
+        try expectEqual(c.handleFlagsChanged(flags: []), .bareModifier("function"))
+    }
+
+    await t.test("Capture: Fn+일반키를 단독 Fn으로 오인하지 않음") {
+        var c = HotkeyCapture()
+        try expectEqual(c.handleFlagsChanged(flags: [.function]), .pending)
+        try expectEqual(c.handleKeyDown(keyCode: 49, flags: [.function]), .ignored)
+        try expectEqual(c.handleFlagsChanged(flags: []), .pending)
+    }
+
+    await t.test("ModifierHotkey: function 이름을 Fn 플래그로 변환") {
+        try expectEqual(ModifierHotkey.flag(named: "function"), .function)
+    }
+
     await t.test("Capture: 보조키 둘 이상은 단독키로 확정 안 됨") {
         var c = HotkeyCapture()
         _ = c.handleFlagsChanged(flags: [.control])

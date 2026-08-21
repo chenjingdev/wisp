@@ -66,13 +66,14 @@ public final class AppContainer: ObservableObject {
             case "option": return "⌥ Option"
             case "command": return "⌘ Command"
             case "shift": return "⇧ Shift"
+            case "function": return "fn"
             default: return name
             }
         }
         return HotkeyCapture.label(keyCode: config.hotkeyKeyCode, carbonModifiers: config.hotkeyModifiers)
     }
 
-    /// 단독 보조키 PTT의 기호(⌃/⌥/⌘/⇧). 콤보 단축키면 nil — 프리셋 숫자 선택은
+    /// 단독 보조키 PTT의 기호(⌃/⌥/⌘/⇧/fn). 콤보 단축키면 nil — 프리셋 숫자 선택은
     /// 단독 보조키를 쥔 채 누르는 방식이라 보조키가 있을 때만 의미가 있다.
     var bareModifierSymbol: String? {
         switch config.hotkeyBareModifier {
@@ -80,6 +81,7 @@ public final class AppContainer: ObservableObject {
         case "option": return "⌥"
         case "command": return "⌘"
         case "shift": return "⇧"
+        case "function": return "fn"
         default: return nil
         }
     }
