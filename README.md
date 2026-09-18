@@ -33,6 +33,8 @@ Whisper 모델(1.5GB)은 앱 첫 실행 시 HuggingFace에서 자동 다운로�
 - ⌃(Control) 짧게 탭: 녹음 토글 / 길게(0.4초+) 누른 채 말하기: push-to-talk
 - ⌃ 조합키(⌃C 등)를 누르면 그 누름은 단축키로 치지 않는다 — 시작 직후면
   녹음 자동 취소, 토글 녹음 중이면 녹음 유지
+- 설정 → 단축키 → "키보드 단축키 사용"을 끄면 전역 키보드 단축키 등록이
+  즉시 해제된다. 트랙패드 트리거는 켜져 있으면 계속 따로 동작한다
 - 트랙패드: 기본 꺼짐. 설정 → 단축키 → "트랙패드 손가락 트리거"를 켜면 됨
   (기본 5손가락, 3/4개로 변경 가능). 키보드 단축키와 같이 동작
 - 지정한 손가락 수를 길게 누르면 받아쓰기(PTT, 떼면 종료). 트랙패드는 토글 없음
@@ -57,8 +59,9 @@ Whisper 모델(1.5GB)은 앱 첫 실행 시 HuggingFace에서 자동 다운로�
 - 녹음 중 Esc: 취소
 - 메뉴바에서 모드 전환 (받아쓰기 = LLM 없음 / 메시지 / 이메일)
 - LLM 실패 시 STT 원문이 그대로 붙여넣어짐 (입력 무손실)
-- 단축키 변경: `config.json`의 `hotkeyBareModifier`(control/option/command/shift,
-  단독 보조키) 또는 null로 두고 `hotkeyKeyCode`+`hotkeyModifiers`(Carbon 콤보)
+- 단축키 변경: 설정 → 단축키에서 키를 누르거나 `config.json`의
+  `hotkeyBareModifier`(control/option/command/shift, 단독 보조키) 또는 null로 두고
+  `hotkeyKeyCode`+`hotkeyModifiers`(Carbon 콤보). `keyboardHotkeyEnabled`로 등록 여부 제어
 - 메뉴바 → "Wisp 열기…": 설정·단축키 레코더·모드 편집·히스토리 창 (Phase 3) —
   설정 변경은 재시작 없이 즉시 적용된다
 - 녹음 중 시스템 동작(모드별): 재생 중 미디어 자동 일시정지/재개(기본), 음소거,

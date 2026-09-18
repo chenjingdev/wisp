@@ -8,12 +8,17 @@ struct HotkeyPane: View {
     var body: some View {
         Form {
             Section("받아쓰기 단축키") {
+                Toggle("키보드 단축키 사용", isOn: container.binding(
+                    \.keyboardHotkeyEnabled,
+                    apply: { container.reregisterHotkey() }
+                ))
                 LabeledContent("현재 단축키") {
                     Button(isRecording ? "키를 누르세요… (Esc 취소)" : container.hotkeyLabel) {
                         isRecording ? stopRecorder() : startRecorder()
                     }
                     .frame(minWidth: 180)
                 }
+                .disabled(!container.config.keyboardHotkeyEnabled)
                 Text("보조키만 눌렀다 떼면 단독키(예: ⌃), 일반 키와 함께 누르면 조합키(예: ⌥Space)")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -31,12 +36,14 @@ struct HotkeyPane: View {
                             container.config.pushToTalkThreshold))
                     .font(.caption).foregroundStyle(.secondary)
             }
+            .disabled(!container.config.keyboardHotkeyEnabled)
 
             Section("프리셋 빠른 선택") {
                 Toggle("받아쓰기 중 숫자키로 프리셋 선택", isOn: container.binding(\.presetHotkeysEnabled))
                 Text("단축키를 누른 채 말하다가 숫자 1…9를 누르면, 모드 목록 순서의 그 프리셋이 이번 받아쓰기의 후처리에 적용됩니다. 손을 떼면 확정됩니다. (단독 보조키 단축키에서 동작)")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            .disabled(!container.config.keyboardHotkeyEnabled)
 
             Section("트랙패드 트리거") {
                 Toggle("트랙패드 손가락 트리거", isOn: trackpadEnabled)
@@ -47,7 +54,7 @@ struct HotkeyPane: View {
                         Text("5개").tag(5)
                     }
                 }
-                Text("지정한 손가락 수를 **길게 누르면** 받아쓰기(push-to-talk), **톡 1번**은 Enter(전송), **톡 2번**은 ⌘Z(방금 받아쓰기 취소). 키보드 단축키와 함께 동작하며, 트랙패드에선 토글 대신 PTT만 동작합니다. 비공개 API 기반이라 macOS 업데이트 후 동작이 바뀔 수 있습니다.")
+                Text("지정한 손가락 수를 **길게 누르면** 받아쓰기(push-to-talk), **톡 1번**은 Enter(전송), **톡 2번**은 ⌘Z(방금 받아쓰기 취소). 키보드 단축키를 꺼도 따로 동작하며, 트랙패드에선 토글 대신 PTT만 동작합니다. 비공개 API 기반이라 macOS 업데이트 후 동작이 바뀔 수 있습니다.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

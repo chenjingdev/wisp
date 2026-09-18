@@ -1,6 +1,8 @@
 import Foundation
 
 struct WispConfig: Codable, Equatable {
+    /// 전역 키보드 단축키 등록 여부. 끄면 트랙패드 트리거만 사용할 수 있다.
+    var keyboardHotkeyEnabled: Bool = true
     var hotkeyKeyCode: UInt32 = 49        // Space
     var hotkeyModifiers: UInt32 = 2048    // Carbon optionKey
     /// 단독 보조키 핫키 ("control"/"option"/"command"/"shift").
@@ -47,6 +49,7 @@ extension WispConfig {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         var v = WispConfig()
+        v.keyboardHotkeyEnabled = try c.decodeIfPresent(Bool.self, forKey: .keyboardHotkeyEnabled) ?? v.keyboardHotkeyEnabled
         v.hotkeyKeyCode = try c.decodeIfPresent(UInt32.self, forKey: .hotkeyKeyCode) ?? v.hotkeyKeyCode
         v.hotkeyModifiers = try c.decodeIfPresent(UInt32.self, forKey: .hotkeyModifiers) ?? v.hotkeyModifiers
         v.hotkeyBareModifier = try c.decodeIfPresent(String.self, forKey: .hotkeyBareModifier) ?? v.hotkeyBareModifier

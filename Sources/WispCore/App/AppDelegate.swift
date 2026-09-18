@@ -18,7 +18,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // 메뉴바 전용 앱이라 창이 없어 "실행해도 아무 반응이 없는" 것처럼 보인다.
     // 이미 실행 중일 때 다시 열면(Finder 더블클릭, open -a) HUD로 생존 신호를 보낸다.
     public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        container.hud.flash("Wisp 실행 중 — \(container.hotkeyLabel) 받아쓰기")
+        container.hud.flash("Wisp 실행 중 — \(container.activationLabel)")
         return false
     }
 
@@ -72,9 +72,18 @@ public final class AppContainer: ObservableObject {
         return HotkeyCapture.label(keyCode: config.hotkeyKeyCode, carbonModifiers: config.hotkeyModifiers)
     }
 
+    /// 현재 실제로 켜진 받아쓰기 트리거의 표시용 요약.
+    var activationLabel: String {
+        var labels: [String] = []
+        if config.keyboardHotkeyEnabled { labels.append("\(hotkeyLabel) 받아쓰기") }
+        if let fingers = config.trackpadFingerCount { labels.append("트랙패드 \(fingers)손가락") }
+        return labels.isEmpty ? "활성 트리거 없음" : labels.joined(separator: " / ")
+    }
+
     /// 단독 보조키 PTT의 기호(⌃/⌥/⌘/⇧). 콤보 단축키면 nil — 프리셋 숫자 선택은
     /// 단독 보조키를 쥔 채 누르는 방식이라 보조키가 있을 때만 의미가 있다.
     var bareModifierSymbol: String? {
+        guard config.keyboardHotkeyEnabled else { return nil }
         switch config.hotkeyBareModifier {
         case "control": return "⌃"
         case "option": return "⌥"
@@ -207,13 +216,15 @@ public final class AppContainer: ObservableObject {
             hud.speechPeakThreshold = config.speechPeakThreshold
             bindHUD(controller)
             registerHotkey(controller)
-            if config.hotkeyBareModifier != nil, !permissions.axTrusted(prompt: false) {
+            if config.keyboardHotkeyEnabled,
+               config.hotkeyBareModifier != nil,
+               !permissions.axTrusted(prompt: false) {
                 // 단독 보조키는 NSEvent 전역 모니터 기반 — 손쉬운 사용 권한 필수
                 statusText = "손쉬운 사용 권한 필요 (단축키 비활성)"
                 hud.flash("Wisp: 손쉬운 사용 권한을 허용해야 \(hotkeyLabel) 단축키가 동작합니다", seconds: 6)
             } else {
-                statusText = "대기 중 (\(hotkeyLabel))"
-                hud.flash("Wisp 준비 완료 — \(hotkeyLabel) 받아쓰기")
+                statusText = "대기 중 (\(activationLabel))"
+                hud.flash("Wisp 준비 완료 — \(activationLabel)")
             }
         } catch {
             statusText = "초기화 실패: \(error.localizedDescription)"
@@ -242,7 +253,7 @@ public final class AppContainer: ObservableObject {
                 try await service.warmUp()
                 try await service.primeInference(language: primingLanguage())
                 controller?.replaceTranscription(service)
-                statusText = "대기 중 (\(hotkeyLabel)) — \(model.displayName)"
+                statusText = "대기 중 (\(activationLabel)) — \(model.displayName)"
             } catch {
                 statusText = "모델 전환 실패: \(error.localizedDescription)"
                 hud.flash("Wisp: 모델 전환 실패 — \(error.localizedDescription)", seconds: 5)
@@ -305,7 +316,7 @@ public final class AppContainer: ObservableObject {
         try? history?.delete(id: id)
     }
 
-    /// 단축키/PTT 임계값 변경 즉시 적용 — 기존 등록 해제 후 재등록.
+    /// 단축키 사용 여부/키/PTT 임계값 변경 즉시 적용 — 기존 등록 해제 후 재등록.
     /// 등록 실패(다른 앱과 Carbon 충돌 등) 시 상태 텍스트로 경고하고 롤백하지
     /// 않는다 (스펙 §6 — 사용자가 다른 키를 다시 고르면 됨).
     func reregisterHotkey() {
@@ -318,7 +329,7 @@ public final class AppContainer: ObservableObject {
         tapHoldRecognizer?.reset()
         tapHoldRecognizer = nil
         let ok = registerHotkey(controller)
-        statusText = ok ? "대기 중 (\(hotkeyLabel))" : "단축키 등록 실패 — 다른 키를 선택하세요"
+        statusText = ok ? "대기 중 (\(activationLabel))" : "단축키 등록 실패 — 다른 키를 선택하세요"
     }
 
     /// 받아쓰기 중 숫자키로 프리셋 슬롯을 골랐을 때 — 활성 모드를 그 모드로 바꾼다.
@@ -444,7 +455,7 @@ public final class AppContainer: ObservableObject {
 
     @discardableResult
     private func registerHotkey(_ controller: RecordingController) -> Bool {
-        let ok = registerKeyboardHotkey(controller)
+        let ok = !config.keyboardHotkeyEnabled || registerKeyboardHotkey(controller)
         registerTrackpadHotkey(controller)   // 트랙패드 트리거(설정 시)와 병행
         return ok
     }

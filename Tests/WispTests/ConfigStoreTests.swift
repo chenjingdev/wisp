@@ -9,6 +9,7 @@ func configStoreTests(_ t: TestRunner) async {
             let config = store.load()
             let defaults = WispConfig()
             try expectEqual(config, defaults)
+            try expectEqual(config.keyboardHotkeyEnabled, true)
             try expectEqual(config.hotkeyKeyCode, UInt32(49))
             try expectEqual(config.hotkeyModifiers, UInt32(2048))
             try expectEqual(config.pushToTalkThreshold, 0.4)
@@ -83,12 +84,14 @@ func configStoreTests(_ t: TestRunner) async {
             try expectEqual(defaults.restoreClipboard, false)
             try expectEqual(defaults.soundFeedback, true)
             try expectEqual(defaults.presetHotkeysEnabled, true)
+            try expectEqual(defaults.keyboardHotkeyEnabled, true)
 
             var config = store.load()
             config.autoPaste = false
             config.restoreClipboard = true
             config.soundFeedback = false
             config.presetHotkeysEnabled = false
+            config.keyboardHotkeyEnabled = false
             try store.save(config)
 
             let loaded = store.load()
@@ -96,6 +99,7 @@ func configStoreTests(_ t: TestRunner) async {
             try expectEqual(loaded.restoreClipboard, true)
             try expectEqual(loaded.soundFeedback, false)
             try expectEqual(loaded.presetHotkeysEnabled, false)
+            try expectEqual(loaded.keyboardHotkeyEnabled, false)
         }
     }
 
@@ -121,6 +125,7 @@ func configStoreTests(_ t: TestRunner) async {
             try expectEqual(c.restoreClipboard, false)
             try expectEqual(c.soundFeedback, true)
             try expectEqual(c.presetHotkeysEnabled, true)
+            try expectEqual(c.keyboardHotkeyEnabled, true)
             try expectEqual(c.vocabulary, "")
             try expectEqual(c.replacements, [])
             try expectEqual(c.pasteMethod, .clipboard)
